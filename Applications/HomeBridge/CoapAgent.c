@@ -15,6 +15,7 @@
 #include "common_types.h"
 #include "sockets_manager.h"
 
+uint32_t debug_lvl = DBG_LOG_INFO;
 
 int udsAddrGenerate(struct sockaddr_un * sockaddr,const char * path)
 {
@@ -31,7 +32,7 @@ int udsAddrGenerate(struct sockaddr_un * sockaddr,const char * path)
 
 
 /* socket is created as a blocking socket */
-int  rcPipeServerCreate(const char* pathname,int *sockId)
+int  CoapAgentCreate(const char* pathname,int *sockId)
 {
 	struct sockaddr_un sockaddr;
 	uint32_t  addrlen;
@@ -88,7 +89,7 @@ int  rcPipeServerCreate(const char* pathname,int *sockId)
 *
 * @end
 *********************************************************************/
-int rcPipeMsgSend(int srcSockFd, struct sockaddr *dest, uint32_t addrlen,uint8_t *msg,ssize_t len)
+int CoapAgentMsgSend(int srcSockFd, struct sockaddr *dest, uint32_t addrlen,uint8_t *msg,ssize_t len)
 {
   ssize_t   bytesSent;
   int flags = 0;
@@ -122,67 +123,58 @@ int rcPipeMsgSend(int srcSockFd, struct sockaddr *dest, uint32_t addrlen,uint8_t
   return RC_E_NONE;
 }
 
-
-
-
-int rcPipeMsgRecv(int fd, uint8_t *buf, uint32_t *buf_len,struct timeval *timeout)
+uint32_t CoapAgentRecv(int fd)
 {
-  ssize_t recvBytes;
-  int rv;
-  int flags = 0;
-
-	
-
-  if (fd < 0)
-  {
-    return RC_E_FAIL;
-  }
-
-  if (timeout)
-  {
-    if ((timeout->tv_sec == 0) && (timeout->tv_usec == 0))
-    {
-      /* set socket to non-blocking for this read */
-      flags |= MSG_DONTWAIT;
-    }
-    else
-    {
-      /* blocking socket with a timeout */
-      rv = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (char *)timeout,
-                      sizeof(struct timeval));
-      if (rv < 0)
-      {
-        debug_log(DBG_LOG_ERR,"Failed to set packet receive timeout. Error %d.\r\n", rv);
-        return RC_E_FAIL;
-      }
-    }
-  }
-  else
-  {
-    /* blocking socket with no timeout. Make sure there is no timeout configured
-     * on the socket from previous call. */
-    rv = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, NULL, 0);
-  }
-
-  recvBytes = recvfrom(fd, buf, *buf_len, flags, 0, 0);
-
-  if (recvBytes < 0)
-  {
-    if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
-    {
-      /* Normal if no packets waiting to be received and caller didn't block. */
-      return RC_E_TIMEOUT;
-    }
-    debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %d. errno %s.\r\n",
-                      (int)recvBytes, strerror(errno));
-    return RC_E_FAIL;
-  }
+	ssize_t recvBytes;
+	//int rc;
+	int flags = 0;
+	uint8_t *buf;
 
 
-	*buf_len = recvBytes;
-  return RC_E_NONE;
+
+	buf = (uint8_t *)calloc(1,1024);
+	/* set socket to non-blocking for this read */
+	flags |= MSG_DONTWAIT;
+
+	recvBytes = recvfrom(fd, buf, 1024, flags, 0, 0);
+
+	if (recvBytes < 0)
+	{
+		if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+		{
+			/* Normal if no packets waiting to be received and caller didn't block. */
+			return 0;
+		}
+		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+		      recvBytes, strerror(errno));
+		return 0;
+	}
+
+	debug_log(DBG_LOG_INFO,"recv(%ld): %s\r\n",recvBytes,buf);
+
+	free(buf);
+	return recvBytes;
 }
 
 
+void test_coap(int srcSockFd)
+{
+	struct sockaddr_un server;	
+	uint32_t addrlen;
+	uint32_t msgLen;
+	char msg[200];
+	char res[]	= "relay-sw";
+	char payload[] = "&state=0xFF&mask=0xF0";
+	char ip[] = "fd00::212:4b00:1940:c16c";
 
+
+	
+	msgLen = snprintf(msg,200,"post://[%ld]/[%s]/%s%s",strlen(res),ip,res,payload);
+
+	debug_log(DBG_LOG_INFO,"send(%d): %s\r\n",msgLen,msg);
+	addrlen = udsAddrGenerate(&server,"/tmp/borderAgent");
+	CoapAgentMsgSend(srcSockFd, (struct sockaddr*)&server, addrlen,(uint8_t*)msg,msgLen);
+
+
+}
 

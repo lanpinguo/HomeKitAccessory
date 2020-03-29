@@ -1,6 +1,6 @@
 // Copyright (c) 2015-2019 The HomeKit ADK Contributors
 //
-// Licensed under the Apache License, Version 2.0 (the “License”);
+// Licensed under the Apache License, Version 2.0 (the “License�?;
 // you may not use this file except in compliance with the License.
 // See [CONTRIBUTORS.md] for the list of HomeKit ADK project authors.
 
@@ -29,6 +29,10 @@
 
 #include "App.h"
 #include "DB.h"
+#include "HAPPlatform.h"
+#include "HAPPlatformFileHandle.h"
+
+#include "CoapAgent.h"
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
@@ -59,6 +63,7 @@ typedef struct {
 } AccessoryConfiguration;
 
 static AccessoryConfiguration accessoryConfiguration;
+int CoapAgentFd;	
 
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -117,16 +122,16 @@ static void SaveAccessoryState(void) {
 //----------------------------------------------------------------------------------------------------------------------
 
 /**
- * HomeKit accessory that provides the Light Bulb service.
+ * HomeKit accessory that provides the 6lowpan Bridge service.
  *
  * Note: Not constant to enable BCT Manual Name Change.
  */
 static HAPAccessory accessory = { .aid = 1,
                                   .category = kHAPAccessoryCategory_Lighting,
-                                  .name = "Acme Light Bulb",
-                                  .manufacturer = "Acme",
-                                  .model = "LightBulb1,1",
-                                  .serialNumber = "099DB48E9E28",
+                                  .name = "Pure 6lowpan Bridge",
+                                  .manufacturer = "Pure",
+                                  .model = "PureBridge1,1",
+                                  .serialNumber = "0A9DB48E9E28",
                                   .firmwareVersion = "1",
                                   .hardwareVersion = "1",
                                   .services = (const HAPService* const[]) { &accessoryInformationService,
@@ -170,7 +175,7 @@ HAPError HandleLightBulbOnWrite(
         accessoryConfiguration.state.lightBulbOn = value;
 
         SaveAccessoryState();
-
+		test_coap(CoapAgentFd);
         HAPAccessoryServerRaiseEvent(server, request->characteristic, request->service, request->accessory);
     }
 
@@ -235,13 +240,49 @@ const HAPAccessory* AppGetAccessoryInfo() {
     return &accessory;
 }
 
+void CoapAgentHandleCallback(
+        HAPPlatformFileHandleRef fileHandle,
+        HAPPlatformFileHandleEvent fileHandleEvents,
+        void* _Nullable context) {
+    HAPAssert(fileHandle);
+    HAPAssert(fileHandleEvents.isReadyForReading);
+    HAPAssert(context);
+
+
+
+	CoapAgentRecv(*(int*)context);
+
+}
+
+
+HAPPlatformFileHandleRef coapAgentFileHandle;
 void AppInitialize(
         HAPAccessoryServerOptions* hapAccessoryServerOptions,
         HAPPlatform* hapPlatform,
         HAPAccessoryServerCallbacks* hapAccessoryServerCallbacks) {
-    /*no-op*/
+
+	HAPError err;
+
+	if(CoapAgentCreate("/tmp/coapClient",&CoapAgentFd)){
+        HAPLogError(&kHAPLog_Default, "%s: CoapAgentCreate failed.", __func__);
+	}
+
+    err = HAPPlatformFileHandleRegister(
+            &coapAgentFileHandle,
+            CoapAgentFd,
+            (HAPPlatformFileHandleEvent) {
+                    .isReadyForReading = true, .isReadyForWriting = false, .hasErrorConditionPending = false },
+            CoapAgentHandleCallback,
+            &CoapAgentFd);
+    if (err) {
+        HAPLogError(&kHAPLog_Default, "%s: HAPPlatformFileHandleRegister failed: %u.", __func__, err);
+        HAPFatalError();
+    }
+
 }
 
 void AppDeinitialize() {
+
+	HAPPlatformFileHandleDeregister(coapAgentFileHandle);
     /*no-op*/
 }
