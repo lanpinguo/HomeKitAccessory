@@ -16,3 +16,6 @@ Output/
 
 # Open source export
 export/
+
+*.o
+*.d
