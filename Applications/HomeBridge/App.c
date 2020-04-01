@@ -148,11 +148,11 @@ static HAPAccessory bridgeAccessory = {
 *
 * Note: Not constant to enable BCT Manual Name Change.
 */
-static HAPAccessory LightAccessories = {
+static HAPAccessory LightAccessories_0 = {
 	.aid = 2,
-	.category = kHAPAccessoryCategory_Lighting,
+	.category = kHAPAccessoryCategory_BridgedAccessory,
 	.name = "Pure Light Bulb",
-	.manufacturer = "Acme",
+	.manufacturer = "Pure",
 	.model = "LightBulb1,1",
 	.serialNumber = "099DB48E9E28",
 	.firmwareVersion = "1",
@@ -164,9 +164,25 @@ static HAPAccessory LightAccessories = {
 	.callbacks = { .identify = IdentifyAccessory } 
 };
 
+static HAPAccessory LightAccessories_1 = {
+	.aid = 3,
+	.category = kHAPAccessoryCategory_BridgedAccessory,
+	.name = "Pure Light Bulb",
+	.manufacturer = "Pure",
+	.model = "LightBulb1,1",
+	.serialNumber = "099DB48E9E29",
+	.firmwareVersion = "1",
+	.hardwareVersion = "1",
+	.services = (const HAPService* const[]) { &accessoryInformationService,
+											  &hapProtocolInformationService,
+											  &lightBulbService,
+											  NULL },
+	.callbacks = { .identify = IdentifyAccessory } 
+};
 
 static HAPAccessory* bridgedAccessories[] = {
-	&LightAccessories,
+	&LightAccessories_0,
+	&LightAccessories_1,
 	NULL
 };
 
