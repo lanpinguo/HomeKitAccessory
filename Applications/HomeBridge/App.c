@@ -126,20 +126,49 @@ static void SaveAccessoryState(void) {
  *
  * Note: Not constant to enable BCT Manual Name Change.
  */
-static HAPAccessory accessory = { .aid = 1,
-                                  .category = kHAPAccessoryCategory_Lighting,
-                                  .name = "Pure 6lowpan Bridge",
-                                  .manufacturer = "Pure",
-                                  .model = "PureBridge1,1",
-                                  .serialNumber = "0A9DB48E9E28",
-                                  .firmwareVersion = "1",
-                                  .hardwareVersion = "1",
-                                  .services = (const HAPService* const[]) { &accessoryInformationService,
-                                                                            &hapProtocolInformationService,
-                                                                            &pairingService,
-                                                                            &lightBulbService,
-                                                                            NULL },
-                                  .callbacks = { .identify = IdentifyAccessory } };
+static HAPAccessory bridgeAccessory = {
+	.aid = 1,
+	.category = kHAPAccessoryCategory_Bridges,
+	.name = "Pure 6lowpan Bridge",
+	.manufacturer = "Pure",
+	.model = "PureBridge1,1",
+	.serialNumber = "0B9DB48E9E28",
+	.firmwareVersion = "1",
+	.hardwareVersion = "1",
+	.services = (const HAPService* const[]) { &accessoryInformationService,
+	                                        &hapProtocolInformationService,
+	                                        &pairingService,
+	                                        NULL },
+	.callbacks = { .identify = IdentifyAccessory }
+};
+
+
+/**
+* HomeKit accessory that provides the Light Bulb service.
+*
+* Note: Not constant to enable BCT Manual Name Change.
+*/
+static HAPAccessory LightAccessories = {
+	.aid = 2,
+	.category = kHAPAccessoryCategory_Lighting,
+	.name = "Pure Light Bulb",
+	.manufacturer = "Acme",
+	.model = "LightBulb1,1",
+	.serialNumber = "099DB48E9E28",
+	.firmwareVersion = "1",
+	.hardwareVersion = "1",
+	.services = (const HAPService* const[]) { &accessoryInformationService,
+											  &hapProtocolInformationService,
+											  &lightBulbService,
+											  NULL },
+	.callbacks = { .identify = IdentifyAccessory } 
+};
+
+
+static HAPAccessory* bridgedAccessories[] = {
+	&LightAccessories,
+	NULL
+};
 
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -210,7 +239,10 @@ void AppRelease(void) {
 }
 
 void AppAccessoryServerStart(void) {
-    HAPAccessoryServerStart(accessoryConfiguration.server, &accessory);
+    HAPAccessoryServerStartBridge(	accessoryConfiguration.server,
+									&bridgeAccessory, 
+									(const HAPAccessory* const* )bridgedAccessories,
+									0);
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -237,7 +269,7 @@ void AccessoryServerHandleUpdatedState(HAPAccessoryServerRef* server, void* _Nul
 }
 
 const HAPAccessory* AppGetAccessoryInfo() {
-    return &accessory;
+    return &bridgeAccessory;
 }
 
 void CoapAgentHandleCallback(
