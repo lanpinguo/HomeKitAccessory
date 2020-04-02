@@ -221,6 +221,7 @@ HAPError HandleLightBulbOnWrite(
 
         SaveAccessoryState();
 		test_coap(CoapAgentFd);
+		test_coap_response_get(CoapAgentFd);
         HAPAccessoryServerRaiseEvent(server, request->characteristic, request->service, request->accessory);
     }
 

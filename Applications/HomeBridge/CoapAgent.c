@@ -14,6 +14,8 @@
 
 #include "common_types.h"
 #include "sockets_manager.h"
+#include "HAPPlatformClock.h"
+
 
 uint32_t debug_lvl = DBG_LOG_INFO;
 
@@ -150,11 +152,111 @@ uint32_t CoapAgentRecv(int fd)
 		return 0;
 	}
 
-	debug_log(DBG_LOG_INFO,"recv(%ld): %s\r\n",recvBytes,buf);
+	debug_log(DBG_LOG_INFO,"callback recv(%ld): %s",recvBytes,buf);
 
 	free(buf);
 	return recvBytes;
 }
+
+
+
+
+
+int CoapMsgRecvWithTimeout(int fd, uint8_t *buf, 
+	uint32_t bufLen, uint32_t *recvLen,struct timeval *timeout)
+{
+	ssize_t recvBytes;
+	int rv;
+	int flags = 0;
+
+
+
+	if (fd < 0)
+	{
+		return RC_E_FAIL;
+	}
+
+	if (timeout)
+	{
+		if ((timeout->tv_sec == 0) && (timeout->tv_usec == 0))
+		{
+			/* set socket to non-blocking for this read */
+			flags |= MSG_DONTWAIT;
+		}
+		else
+		{
+			/* blocking socket with a timeout */
+			rv = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (char *)timeout,
+			  sizeof(struct timeval));
+			if (rv < 0)
+			{
+				debug_log(DBG_LOG_ERR,"Failed to set packet receive timeout. Error %d.\r\n", rv);
+				return RC_E_FAIL;
+			}
+		}
+	}
+	else
+	{
+		/* blocking socket with no timeout. Make sure there is no timeout configured
+		* on the socket from previous call. */
+		rv = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, NULL, 0);
+	}
+
+	recvBytes = recvfrom(fd, buf, bufLen, flags, 0, 0);
+
+	if (recvBytes < 0)
+	{
+		if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+		{
+			/* Normal if no packets waiting to be received and caller didn't block. */
+			return RC_E_TIMEOUT;
+		}
+		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+		  recvBytes, strerror(errno));
+		return RC_E_FAIL;
+	}
+
+
+	*recvLen = recvBytes;
+	return RC_E_NONE;
+}
+
+#define RECV_TIMEOUT	2000
+
+void test_coap_response_get(int srcSockFd)
+{
+	RC_ERROR_t rc;
+	struct timeval timeout;
+	HAPTime start,now;
+	uint32_t msgLen = 0;
+	uint8_t msg[200];
+
+
+
+	memset(msg,0,200);
+	start = HAPPlatformClockGetCurrent();
+	now = start;
+	timeout.tv_sec = 2;
+	for(;(now - start) < RECV_TIMEOUT;){
+		rc = CoapMsgRecvWithTimeout(srcSockFd, msg, 200, &msgLen,&timeout);
+		now = HAPPlatformClockGetCurrent();
+		if(rc != RC_E_TIMEOUT){
+			int32_t tmp;
+			debug_log(DBG_LOG_INFO,"sync recv(%d): %s",msgLen,msg);
+			tmp = timeout.tv_sec * 1000 + timeout.tv_usec / 1000;
+			tmp -= (now - start);
+			timeout.tv_sec = tmp / 1000;
+			timeout.tv_usec = (tmp % 1000) * 1000;
+			continue;
+		}
+		else{
+			/* Wait timeout */
+			debug_log(DBG_LOG_INFO,"sync recv timeout");
+			return ;
+		}
+	}
+}
+
 
 
 void test_coap(int srcSockFd)
@@ -171,7 +273,7 @@ void test_coap(int srcSockFd)
 	
 	msgLen = snprintf(msg,200,"post://[%ld]/[%s]/%s%s",strlen(res),ip,res,payload);
 
-	debug_log(DBG_LOG_INFO,"send(%d): %s\r\n",msgLen,msg);
+	debug_log(DBG_LOG_INFO,"send(%d): %s",msgLen,msg);
 	addrlen = udsAddrGenerate(&server,"/tmp/borderAgent");
 	CoapAgentMsgSend(srcSockFd, (struct sockaddr*)&server, addrlen,(uint8_t*)msg,msgLen);
 
