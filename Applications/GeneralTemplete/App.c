@@ -218,6 +218,10 @@ HAPError ParseBaseInfoFromJsonFormat(
 	uint32_t hasCategory = 0;
 	uint32_t hasName = 0;
 	uint32_t hasManufacturer = 0;
+	uint32_t hasModel = 0;
+	uint32_t hasSerialNumber = 0;
+	uint32_t hasFirmwareVersion = 0;
+	uint32_t hasHardwareVersion = 0;
 
     HAPError err;
 
@@ -348,6 +352,90 @@ HAPError ParseBaseInfoFromJsonFormat(
                 return kHAPError_InvalidData;
             }
         } 
+		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"model\"", 14)) {
+            if (hasModel) {
+                HAPLog(&kHAPLog_Default, "Multiple model entries detected.");
+                return kHAPError_InvalidData;
+            }
+            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
+                HAPAssert(k <= numBytes);
+                i = k;
+                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
+                    return kHAPError_InvalidData;
+                }
+                HAPAssert(i <= k);
+                HAPAssert(k <= numBytes);
+                HAPRawBufferCopyBytes(baseInfo->model,&bytes[i],k - i);
+				hasModel = true;
+            } else {
+                return kHAPError_InvalidData;
+            }
+        } 
+		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"serialNumber\"", 14)) {
+            if (hasSerialNumber) {
+                HAPLog(&kHAPLog_Default, "Multiple serialNumber entries detected.");
+                return kHAPError_InvalidData;
+            }
+            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
+                HAPAssert(k <= numBytes);
+                i = k;
+                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
+                    return kHAPError_InvalidData;
+                }
+                HAPAssert(i <= k);
+                HAPAssert(k <= numBytes);
+                HAPRawBufferCopyBytes(baseInfo->serialNumber,&bytes[i],k - i);
+				hasSerialNumber = true;
+            } else {
+                return kHAPError_InvalidData;
+            }
+        } 
+		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"firmwareVersion\"", 14)) {
+            if (hasFirmwareVersion) {
+                HAPLog(&kHAPLog_Default, "Multiple firmwareVersion entries detected.");
+                return kHAPError_InvalidData;
+            }
+            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
+                HAPAssert(k <= numBytes);
+                i = k;
+                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
+                    return kHAPError_InvalidData;
+                }
+                HAPAssert(i <= k);
+                HAPAssert(k <= numBytes);
+                HAPRawBufferCopyBytes(baseInfo->firmwareVersion,&bytes[i],k - i);
+				hasFirmwareVersion = true;
+            } else {
+                return kHAPError_InvalidData;
+            }
+        } 
+		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"hardwareVersion\"", 14)) {
+            if (hasHardwareVersion) {
+                HAPLog(&kHAPLog_Default, "Multiple hardwareVersion entries detected.");
+                return kHAPError_InvalidData;
+            }
+            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
+                HAPAssert(k <= numBytes);
+                i = k;
+                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
+                    return kHAPError_InvalidData;
+                }
+                HAPAssert(i <= k);
+                HAPAssert(k <= numBytes);
+                HAPRawBufferCopyBytes(baseInfo->hardwareVersion,&bytes[i],k - i);
+				hasHardwareVersion = true;
+            } else {
+                return kHAPError_InvalidData;
+            }
+        } 
 		else {
             size_t skippedBytes;
             err = HAPJSONUtilsSkipValue(&json_reader, &bytes[k], numBytes - k, &skippedBytes);
@@ -409,6 +497,26 @@ static void LoadAccessoryBaseInfo(void) {
             sizeof accessoryConfiguration.baseInfo,
             "Accessory base info");
 
+	err = ParseBaseInfoFromJsonFormat(
+		(char*)baseInfo,
+		sizeof accessoryConfiguration.baseInfo,
+		&accessoryConfiguration.baseInfo);
+	
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.aid: %ld", accessoryConfiguration.baseInfo.aid);
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.category: %d", accessoryConfiguration.baseInfo.category);
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.name: %s", accessoryConfiguration.baseInfo.name);
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.manufacturer: %s", accessoryConfiguration.baseInfo.manufacturer);
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.model: %s", accessoryConfiguration.baseInfo.model);
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.serialNumber: %s", accessoryConfiguration.baseInfo.serialNumber);
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.firmwareVersion: %s", accessoryConfiguration.baseInfo.firmwareVersion);
+    HAPLogDebug(&kHAPLog_Default, "baseInfo.hardwareVersion: %s", accessoryConfiguration.baseInfo.hardwareVersion);
+	
+    if (err) {
+        HAPAssert(err == kHAPError_Unknown);
+        HAPFatalError();
+		goto DONE;
+    }
+
 	accessory.aid				= accessoryConfiguration.baseInfo.aid;
 	accessory.category 			= accessoryConfiguration.baseInfo.category;
 	accessory.name				= accessoryConfiguration.baseInfo.name;
@@ -417,6 +525,8 @@ static void LoadAccessoryBaseInfo(void) {
 	accessory.serialNumber		= accessoryConfiguration.baseInfo.serialNumber;
 	accessory.firmwareVersion 	= accessoryConfiguration.baseInfo.firmwareVersion;
 	accessory.hardwareVersion 	= accessoryConfiguration.baseInfo.hardwareVersion;
+
+
 
 DONE:
 	if(baseInfo != NULL){
