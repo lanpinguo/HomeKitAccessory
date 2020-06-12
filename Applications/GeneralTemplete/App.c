@@ -352,7 +352,7 @@ HAPError ParseBaseInfoFromJsonFormat(
                 return kHAPError_InvalidData;
             }
         } 
-		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"model\"", 14)) {
+		else if ((j - i == 7) && HAPRawBufferAreEqual(&bytes[i], "\"model\"", 7)) {
             if (hasModel) {
                 HAPLog(&kHAPLog_Default, "Multiple model entries detected.");
                 return kHAPError_InvalidData;
@@ -394,7 +394,7 @@ HAPError ParseBaseInfoFromJsonFormat(
                 return kHAPError_InvalidData;
             }
         } 
-		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"firmwareVersion\"", 14)) {
+		else if ((j - i == 17) && HAPRawBufferAreEqual(&bytes[i], "\"firmwareVersion\"", 17)) {
             if (hasFirmwareVersion) {
                 HAPLog(&kHAPLog_Default, "Multiple firmwareVersion entries detected.");
                 return kHAPError_InvalidData;
@@ -415,7 +415,7 @@ HAPError ParseBaseInfoFromJsonFormat(
                 return kHAPError_InvalidData;
             }
         } 
-		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"hardwareVersion\"", 14)) {
+		else if ((j - i == 17) && HAPRawBufferAreEqual(&bytes[i], "\"hardwareVersion\"", 17)) {
             if (hasHardwareVersion) {
                 HAPLog(&kHAPLog_Default, "Multiple hardwareVersion entries detected.");
                 return kHAPError_InvalidData;
