@@ -5,7 +5,7 @@
 typedef struct  
 {
 	int sockFd;	
-
+	HAPPlatformFileHandleRef fileHandle;
 
 } COAP_Session;
 

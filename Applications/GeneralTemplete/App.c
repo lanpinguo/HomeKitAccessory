@@ -160,7 +160,11 @@ typedef struct {
 
 static AccessoryConfiguration accessoryConfiguration;
 COAP_Session coap_session;
-static HAPPlatformFileHandleRef coapAgentFileHandle;
+
+
+//----------------------------------------------------------------------------------------------------------------------
+void AccessoryCoapAgentCreate(void);
+
 //----------------------------------------------------------------------------------------------------------------------
 
 /**
@@ -667,9 +671,13 @@ void AppCreate(HAPAccessoryServerRef* server, HAPPlatformKeyValueStoreRef keyVal
 	LoadAccessoryBaseInfo();
 	
     LoadAccessoryState();
+
+	AccessoryCoapAgentCreate();
+	
 }
 
 void AppRelease(void) {
+    HAPPlatformFileHandleDeregister(coap_session.fileHandle);
 }
 
 void AppAccessoryServerStart(void) {
@@ -718,20 +726,44 @@ void CoapAgentHandleCallback(
 
 }
 
+HAP_RESULT_USE_CHECK
+HAPError COAP_SocketNameFormat(char * bytes, size_t numBytes)
+{
+	size_t i;
 
-void AppInitialize(
-        HAPAccessoryServerOptions* hapAccessoryServerOptions,
-        HAPPlatform* hapPlatform,
-        HAPAccessoryServerCallbacks* hapAccessoryServerCallbacks) {
-	if(CoapAgentCreate("/tmp/coapClient",&coap_session.sockFd)){
+	/* Replace char ' ' with '_'*/
+	for(i = 0; i < numBytes; i++){
+		if(bytes[i] == ' '){
+			bytes[i] = '_';
+		}
+	}
+	return kHAPError_None;
+}
+
+
+void AccessoryCoapAgentCreate(void)
+{
+	HAPError err;
+
+	char uds_sock_name[128];
+
+
+	snprintf(uds_sock_name, 
+		sizeof(uds_sock_name) - 1,
+		"/tmp/coap_%s_%s", 
+		accessoryConfiguration.baseInfo.name,
+		accessoryConfiguration.baseInfo.serialNumber);
+
+	(void)COAP_SocketNameFormat(uds_sock_name,sizeof(uds_sock_name));	
+	
+	if(CoapAgentCreate(uds_sock_name,&coap_session.sockFd)){
         HAPLogError(&kHAPLog_Default, "%s: CoapAgentCreate failed.", __func__);
 	}
 
-	HAPError err;
 
 
     err = HAPPlatformFileHandleRegister(
-            &coapAgentFileHandle,
+            &coap_session.fileHandle,
             coap_session.sockFd,
             (HAPPlatformFileHandleEvent) {
                     .isReadyForReading = true, .isReadyForWriting = false, .hasErrorConditionPending = false },
@@ -743,6 +775,14 @@ void AppInitialize(
     }
 }
 
+
+void AppInitialize(
+        HAPAccessoryServerOptions* hapAccessoryServerOptions,
+        HAPPlatform* hapPlatform,
+        HAPAccessoryServerCallbacks* hapAccessoryServerCallbacks)
+{
+	/* no-op */
+}
+
 void AppDeinitialize() {
-    HAPPlatformFileHandleDeregister(coapAgentFileHandle);
 }
