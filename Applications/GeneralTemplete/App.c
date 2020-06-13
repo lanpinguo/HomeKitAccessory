@@ -27,7 +27,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <string.h>
 
 #include "HAP.h"
 
@@ -205,13 +205,105 @@ static size_t try_read_uint64(const char* buffer, size_t length, uint64_t* r) {
     return k;
 }
 
+HAP_RESULT_USE_CHECK
+static size_t try_read_number(
+        struct util_json_reader* json_reader,
+        char* bytes,
+        size_t numBytes,
+        uint64_t* destNum,
+        HAPError* err) 
+{
+
+    size_t i, k, n;
+    uint64_t x;
+
+
+    HAPAssert(json_reader != NULL);
+    HAPAssert(bytes != NULL);
+    HAPAssert(destNum != NULL);
+    HAPAssert(err != NULL);
+
+	k = 0;
+	*err = kHAPError_None;
+    k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+    if (json_reader->state == util_JSON_READER_STATE_BEGINNING_NUMBER) {
+        HAPAssert(k <= numBytes);
+        i = k;
+        k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+        if (json_reader->state != util_JSON_READER_STATE_COMPLETED_NUMBER) {
+            *err = kHAPError_InvalidData;
+			goto EXIT;
+        }
+        HAPAssert(i <= k);
+        HAPAssert(k <= numBytes);
+        n = try_read_uint64(&bytes[i], k - i, &x);
+        if (n == k - i) {
+            *destNum = x;
+        } else {
+            HAPLogBuffer(&kHAPLog_Default, &bytes[i], k - i, "Invalid number.");
+	        *err = kHAPError_InvalidData;
+			goto EXIT;
+        }
+    } else {
+        *err = kHAPError_InvalidData;
+		goto EXIT;
+    }
+
+EXIT:
+
+	return k;
+
+}
+
+HAP_RESULT_USE_CHECK
+static size_t try_read_string(
+        struct util_json_reader* json_reader,
+        char* bytes,
+        size_t numBytes,
+        char* destStr,
+        HAPError* err) 
+{
+
+    size_t i, k;
+
+
+    HAPAssert(json_reader != NULL);
+    HAPAssert(bytes != NULL);
+    HAPAssert(destStr != NULL);
+    HAPAssert(err != NULL);
+
+	k = 0;
+	*err = kHAPError_None;
+    k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+    if (json_reader->state == util_JSON_READER_STATE_BEGINNING_STRING) {
+        HAPAssert(k <= numBytes);
+        i = k;
+        k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+        if (json_reader->state != util_JSON_READER_STATE_COMPLETED_STRING) {
+            *err = kHAPError_InvalidData;
+			goto EXIT;
+        }
+        HAPAssert(i <= k);
+        HAPAssert(k <= numBytes);
+		/* Do not copy '"' char */
+        HAPRawBufferCopyBytes(destStr,&bytes[i + 1],k - i - 2);
+    } else {
+        *err = kHAPError_InvalidData;
+		goto EXIT;
+    }
+
+EXIT:
+
+	return k;
+
+}
+
 HAPError ParseBaseInfoFromJsonFormat(
 		char* bytes,
         size_t numBytes,
         struct HAPAccessoryBase* baseInfo )
 {
-    size_t i, j, k, n;
-    uint64_t x;
+    size_t i, j, k;
     struct util_json_reader json_reader;
 
 	uint32_t hasAID = 0;
@@ -226,6 +318,7 @@ HAPError ParseBaseInfoFromJsonFormat(
     HAPError err;
 
 
+    util_json_reader_init(&json_reader);
     k = util_json_reader_read(&json_reader, bytes, numBytes);
     if (json_reader.state != util_JSON_READER_STATE_BEGINNING_OBJECT) {
         return kHAPError_InvalidData;
@@ -254,187 +347,107 @@ HAPError ParseBaseInfoFromJsonFormat(
         HAPAssert(j <= k);
         HAPAssert(k <= numBytes);
 		
+		
 		if ((j - i == 5) && HAPRawBufferAreEqual(&bytes[i], "\"aid\"", 5)) {
             if (hasAID) {
                 HAPLog(&kHAPLog_Default, "Multiple AID entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_NUMBER) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_NUMBER) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-                n = try_read_uint64(&bytes[i], k - i, &x);
-                if (n == k - i) {
-                    baseInfo->aid = x;
-                    hasAID = true;
-                } else {
-                    HAPLogBuffer(&kHAPLog_Default, &bytes[i], k - i, "Invalid AID requested.");
-                    return kHAPError_InvalidData;
-                }
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_number(&json_reader, &bytes[k], numBytes - k, &baseInfo->aid, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasAID = true;
         } 		
 		else if ((j - i == 10) && HAPRawBufferAreEqual(&bytes[i], "\"category\"", 10)) {
+		    uint64_t tmp;
+
             if (hasCategory) {
                 HAPLog(&kHAPLog_Default, "Multiple AID entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_NUMBER) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_NUMBER) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-                n = try_read_uint64(&bytes[i], k - i, &x);
-                if (n == k - i) {
-                    baseInfo->category = x;
-                    hasCategory = true;
-                } else {
-                    HAPLogBuffer(&kHAPLog_Default, &bytes[i], k - i, "Invalid category requested.");
-                    return kHAPError_InvalidData;
-                }
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_number(&json_reader, &bytes[k], numBytes - k, &tmp, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			baseInfo->category = (HAPAccessoryCategory)tmp;
+			hasCategory = true;
         } 
 		else if ((j - i == 6) && HAPRawBufferAreEqual(&bytes[i], "\"name\"", 6)) {
             if (hasName) {
                 HAPLog(&kHAPLog_Default, "Multiple name entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-
-                HAPRawBufferCopyBytes(baseInfo->name,&bytes[i],k - i);
-				hasName = true;
-
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_string(&json_reader, &bytes[k], numBytes - k, baseInfo->name, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasName = true;
+			
         } 
 		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"manufacturer\"", 14)) {
             if (hasManufacturer) {
                 HAPLog(&kHAPLog_Default, "Multiple AID entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-                HAPRawBufferCopyBytes(baseInfo->manufacturer,&bytes[i],k - i);
-				hasManufacturer = true;
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_string(&json_reader, &bytes[k], numBytes - k, baseInfo->manufacturer, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasManufacturer = true;
+
         } 
 		else if ((j - i == 7) && HAPRawBufferAreEqual(&bytes[i], "\"model\"", 7)) {
             if (hasModel) {
                 HAPLog(&kHAPLog_Default, "Multiple model entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-                HAPRawBufferCopyBytes(baseInfo->model,&bytes[i],k - i);
-				hasModel = true;
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_string(&json_reader, &bytes[k], numBytes - k, baseInfo->model, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasModel = true;
         } 
 		else if ((j - i == 14) && HAPRawBufferAreEqual(&bytes[i], "\"serialNumber\"", 14)) {
             if (hasSerialNumber) {
                 HAPLog(&kHAPLog_Default, "Multiple serialNumber entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-                HAPRawBufferCopyBytes(baseInfo->serialNumber,&bytes[i],k - i);
-				hasSerialNumber = true;
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_string(&json_reader, &bytes[k], numBytes - k, baseInfo->serialNumber, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasSerialNumber = true;
         } 
 		else if ((j - i == 17) && HAPRawBufferAreEqual(&bytes[i], "\"firmwareVersion\"", 17)) {
             if (hasFirmwareVersion) {
                 HAPLog(&kHAPLog_Default, "Multiple firmwareVersion entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-                HAPRawBufferCopyBytes(baseInfo->firmwareVersion,&bytes[i],k - i);
-				hasFirmwareVersion = true;
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_string(&json_reader, &bytes[k], numBytes - k, baseInfo->firmwareVersion, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasSerialNumber = true;
         } 
 		else if ((j - i == 17) && HAPRawBufferAreEqual(&bytes[i], "\"hardwareVersion\"", 17)) {
             if (hasHardwareVersion) {
                 HAPLog(&kHAPLog_Default, "Multiple hardwareVersion entries detected.");
                 return kHAPError_InvalidData;
             }
-            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-            if (json_reader.state == util_JSON_READER_STATE_BEGINNING_STRING) {
-                HAPAssert(k <= numBytes);
-                i = k;
-                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
-                if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
-                    return kHAPError_InvalidData;
-                }
-                HAPAssert(i <= k);
-                HAPAssert(k <= numBytes);
-                HAPRawBufferCopyBytes(baseInfo->hardwareVersion,&bytes[i],k - i);
-				hasHardwareVersion = true;
-            } else {
-                return kHAPError_InvalidData;
-            }
+			k += try_read_string(&json_reader, &bytes[k], numBytes - k, baseInfo->hardwareVersion, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasHardwareVersion = true;
         } 
 		else {
             size_t skippedBytes;
@@ -499,17 +512,17 @@ static void LoadAccessoryBaseInfo(void) {
 
 	err = ParseBaseInfoFromJsonFormat(
 		(char*)baseInfo,
-		sizeof accessoryConfiguration.baseInfo,
+		strlen((char*)baseInfo),
 		&accessoryConfiguration.baseInfo);
 	
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.aid: %ld", accessoryConfiguration.baseInfo.aid);
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.category: %d", accessoryConfiguration.baseInfo.category);
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.name: %s", accessoryConfiguration.baseInfo.name);
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.manufacturer: %s", accessoryConfiguration.baseInfo.manufacturer);
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.model: %s", accessoryConfiguration.baseInfo.model);
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.serialNumber: %s", accessoryConfiguration.baseInfo.serialNumber);
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.firmwareVersion: %s", accessoryConfiguration.baseInfo.firmwareVersion);
-    HAPLogDebug(&kHAPLog_Default, "baseInfo.hardwareVersion: %s", accessoryConfiguration.baseInfo.hardwareVersion);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.aid: %ld", accessoryConfiguration.baseInfo.aid);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.category: %d", accessoryConfiguration.baseInfo.category);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.name: %s", accessoryConfiguration.baseInfo.name);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.manufacturer: %s", accessoryConfiguration.baseInfo.manufacturer);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.model: %s", accessoryConfiguration.baseInfo.model);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.serialNumber: %s", accessoryConfiguration.baseInfo.serialNumber);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.firmwareVersion: %s", accessoryConfiguration.baseInfo.firmwareVersion);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.hardwareVersion: %s", accessoryConfiguration.baseInfo.hardwareVersion);
 	
     if (err) {
         HAPAssert(err == kHAPError_Unknown);
