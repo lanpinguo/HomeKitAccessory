@@ -439,7 +439,7 @@ HAPError ParseBaseInfoFromJsonFormat(
                 HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
 				return err;
 			}
-			hasSerialNumber = true;
+			hasFirmwareVersion = true;
         } 
 		else if ((j - i == 17) && HAPRawBufferAreEqual(&bytes[i], "\"hardwareVersion\"", 17)) {
             if (hasHardwareVersion) {
