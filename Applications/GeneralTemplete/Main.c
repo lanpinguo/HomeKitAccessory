@@ -1,6 +1,6 @@
 // Copyright (c) 2015-2019 The HomeKit ADK Contributors
 //
-// Licensed under the Apache License, Version 2.0 (the “License”);
+// Licensed under the Apache License, Version 2.0 (the “License�?;
 // you may not use this file except in compliance with the License.
 // See [CONTRIBUTORS.md] for the list of HomeKit ADK project authors.
 
@@ -20,6 +20,9 @@
 #include "HAPPlatformTCPStreamManager+Init.h"
 #endif
 
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <signal.h>
 static bool requestedFactoryReset = false;
 static bool clearPairings = false;
@@ -277,8 +280,55 @@ static void InitializeBLE() {
 }
 #endif
 
+bool IsValidPath(const char * path){
+
+    if(path[0] != '/'){
+        return false;
+    }
+    return true;
+}
+
+HAPError EnvironmentPreconfig(int argc, char* _Nullable argv[_Nullable]){
+    int err;
+
+    
+    if(argc > 1){
+		if(strcmp("--root", argv[1]) == 0){
+
+            if(argc == 3){
+                if(IsValidPath(argv[2])){
+                    err = chdir(argv[2]);
+                    if(err != 0){
+                        HAPLogError(&kHAPLog_Default, "Faild to change current work directory to %s", argv[2]);
+                        return kHAPError_InvalidData;
+                    }
+                    HAPLogInfo(&kHAPLog_Default, "Success to change current work directory to %s", argv[2]);
+
+                }  
+
+            }
+            else{
+                HAPLogInfo(&kHAPLog_Default, "Missing parameter for %s", argv[1]);
+                return kHAPError_InvalidData;
+            }
+            
+		}
+        else{
+            HAPLogInfo(&kHAPLog_Default, "Unsupported option %s", argv[1]);
+            return kHAPError_InvalidData;
+        }
+
+    }
+
+    return kHAPError_None;
+
+}
+
 int main(int argc, char* _Nullable argv[_Nullable]) {
     HAPAssert(HAPGetCompatibilityVersion() == HAP_COMPATIBILITY_VERSION);
+
+    // Configure root directory
+    (void)EnvironmentPreconfig(argc, argv);
 
     // Initialize global platform objects.
     InitializePlatform();
