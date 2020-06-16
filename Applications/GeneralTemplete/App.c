@@ -722,7 +722,7 @@ void CoapAgentHandleCallback(
 
 
 
-	CoapAgentRecv(((COAP_Session *)context)->sockFd);
+	CoapAgentRecv((COAP_Session *)context);
 
 }
 
@@ -745,22 +745,38 @@ void AccessoryCoapAgentCreate(void)
 {
 	HAPError err;
 
-	char uds_sock_name[128];
 
+    static uint8_t ipInboundBuffers[2048];
+    static uint8_t ipOutboundBuffers[2048];
 
-	snprintf(uds_sock_name, 
-		sizeof(uds_sock_name) - 1,
-		"/tmp/coap_%s_%s", 
-		accessoryConfiguration.baseInfo.name,
-		accessoryConfiguration.baseInfo.serialNumber);
+	snprintf(coap_session.uds_sock_name, 
+		sizeof(coap_session.uds_sock_name) - 1,
+		"/tmp/coap_%s", 
+		accessoryConfiguration.baseInfo.name);
 
-	(void)COAP_SocketNameFormat(uds_sock_name,sizeof(uds_sock_name));	
+	(void)COAP_SocketNameFormat(coap_session.uds_sock_name,sizeof(coap_session.uds_sock_name));	
 	
-	if(CoapAgentCreate(uds_sock_name,&coap_session.sockFd)){
+	if(CoapAgentCreate(coap_session.uds_sock_name,&coap_session.sockFd)){
         HAPLogError(&kHAPLog_Default, "%s: CoapAgentCreate failed.", __func__);
 	}
 
 
+    coap_session.session.inboundBuffer.position = 0;
+    coap_session.session.inboundBuffer.limit = sizeof ipInboundBuffers;
+    coap_session.session.inboundBuffer.capacity = sizeof ipInboundBuffers;
+    coap_session.session.inboundBuffer.data = (char*)ipInboundBuffers;
+    coap_session.session.inboundBufferMark = 0;
+    coap_session.session.outboundBuffer.position = 0;
+    coap_session.session.outboundBuffer.limit = sizeof ipOutboundBuffers;
+    coap_session.session.outboundBuffer.capacity = sizeof ipOutboundBuffers;
+    coap_session.session.outboundBuffer.data = (char*)ipOutboundBuffers;
+    coap_session.session.eventNotifications = NULL;
+    coap_session.session.maxEventNotifications = 10;
+    coap_session.session.numEventNotifications = 0;
+    coap_session.session.numEventNotificationFlags = 0;
+    coap_session.session.eventNotificationStamp = 0;
+    coap_session.session.timedWriteExpirationTime = 0;
+    coap_session.session.timedWritePID = 0;
 
     err = HAPPlatformFileHandleRegister(
             &coap_session.fileHandle,

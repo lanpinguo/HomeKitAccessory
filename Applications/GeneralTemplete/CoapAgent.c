@@ -13,10 +13,230 @@
 #include <stdint.h>
 
 #include "common_types.h"
-#include "HAPPlatformClock.h"
 
+#include "HAPPlatform.h"
+#include "HAPPlatformFileHandle.h"
+
+#include "HAP+Internal.h"
+#include "HAPPlatformClock.h"
+#include "CoapAgent.h"
 
 uint32_t debug_lvl = DBG_LOG_INFO;
+
+static const HAPLogObject logObject = { .subsystem = kHAP_LogSubsystem, .category = "CoapAgent" };
+
+
+/** Build-time flag to disable session security. */
+#define kHAPIPAccessoryServer_SessionSecurityDisabled ((bool) false)
+
+/** US-ASCII horizontal-tab character. */
+#define kHAPIPAccessoryServerCharacter_HorizontalTab ((char) 9)
+
+/** US-ASCII space character. */
+#define kHAPIPAccessoryServerCharacter_Space ((char) 32)
+
+static void update_token(struct util_http_reader* r, char** token, size_t* length) {
+    HAPAssert(r);
+    HAPAssert(token);
+    HAPAssert(length);
+
+    if (!*token) {
+        *token = r->result_token;
+        *length = r->result_length;
+    } else if (r->result_token) {
+        HAPAssert(&(*token)[*length] == r->result_token);
+        *length += r->result_length;
+    }
+}
+
+
+static void read_http_content_length(COAPUnixDomainSessionDescriptor * session) {
+    HAPPrecondition(session);
+
+    size_t i;
+    int overflow;
+    unsigned int v;
+
+    HAPAssert(session->inboundBuffer.data);
+    HAPAssert(session->inboundBuffer.position <= session->inboundBuffer.limit);
+    HAPAssert(session->inboundBuffer.limit <= session->inboundBuffer.capacity);
+    HAPAssert(session->httpReaderPosition <= session->inboundBuffer.position);
+    HAPAssert(session->httpReader.state == util_HTTP_READER_STATE_COMPLETED_HEADER_VALUE);
+    HAPAssert(!session->httpParserError);
+    i = 0;
+    while ((i < session->httpHeaderFieldValue.numBytes) &&
+           ((session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_Space) ||
+            (session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_HorizontalTab))) {
+        // Skip whitespace.
+        i++;
+    }
+    HAPAssert(
+            (i == session->httpHeaderFieldValue.numBytes) ||
+            ((i < session->httpHeaderFieldValue.numBytes) &&
+             (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_Space) &&
+             (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_HorizontalTab)));
+    if ((i < session->httpHeaderFieldValue.numBytes) && ('0' <= session->httpHeaderFieldValue.bytes[i]) &&
+        (session->httpHeaderFieldValue.bytes[i] <= '9') && !session->httpContentLength.isDefined) {
+        overflow = 0;
+        session->httpContentLength.value = 0;
+        do {
+            v = (unsigned int) (session->httpHeaderFieldValue.bytes[i] - '0');
+            if (session->httpContentLength.value <= (SIZE_MAX - v) / 10) {
+                session->httpContentLength.value = session->httpContentLength.value * 10 + v;
+                i++;
+            } else {
+                overflow = 1;
+            }
+        } while (!overflow && (i < session->httpHeaderFieldValue.numBytes) &&
+                 ('0' <= session->httpHeaderFieldValue.bytes[i]) && (session->httpHeaderFieldValue.bytes[i] <= '9'));
+        HAPAssert(
+                overflow || (i == session->httpHeaderFieldValue.numBytes) ||
+                ((i < session->httpHeaderFieldValue.numBytes) &&
+                 ((session->httpHeaderFieldValue.bytes[i] < '0') || (session->httpHeaderFieldValue.bytes[i] > '9'))));
+        if (!overflow) {
+            while ((i < session->httpHeaderFieldValue.numBytes) &&
+                   ((session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_Space) ||
+                    (session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_HorizontalTab))) {
+                i++;
+            }
+            HAPAssert(
+                    (i == session->httpHeaderFieldValue.numBytes) ||
+                    ((i < session->httpHeaderFieldValue.numBytes) &&
+                     (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_Space) &&
+                     (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_HorizontalTab)));
+            if (i == session->httpHeaderFieldValue.numBytes) {
+                session->httpContentLength.isDefined = true;
+            } else {
+                session->httpParserError = true;
+            }
+        } else {
+            session->httpParserError = true;
+        }
+    } else {
+        session->httpParserError = true;
+    }
+}
+
+static void read_http_content_type(COAPUnixDomainSessionDescriptor* session) {
+
+
+}
+
+
+static void read_http(COAPUnixDomainSessionDescriptor* session) {
+    HAPPrecondition(session);
+
+    struct util_http_reader* r;
+
+    HAPAssert(session->inboundBuffer.data);
+    HAPAssert(session->inboundBuffer.position <= session->inboundBuffer.limit);
+    HAPAssert(session->inboundBuffer.limit <= session->inboundBuffer.capacity);
+    HAPAssert(session->httpReaderPosition <= session->inboundBuffer.position);
+    HAPAssert(!session->httpParserError);
+    r = &session->httpReader;
+    bool hasContentLength = false;
+    bool hasContentType = false;
+    do {
+        session->httpReaderPosition += util_http_reader_read(
+                r,
+                &session->inboundBuffer.data[session->httpReaderPosition],
+                session->inboundBuffer.position - session->httpReaderPosition);
+        switch (r->state) {
+            case util_HTTP_READER_STATE_READING_METHOD:
+            case util_HTTP_READER_STATE_COMPLETED_METHOD: {
+                update_token(r, &session->httpMethod.bytes, &session->httpMethod.numBytes);
+            } break;
+            case util_HTTP_READER_STATE_READING_URI:
+            case util_HTTP_READER_STATE_COMPLETED_URI: {
+                update_token(r, &session->httpURI.bytes, &session->httpURI.numBytes);
+            } break;
+            case util_HTTP_READER_STATE_READING_HEADER_NAME:
+            case util_HTTP_READER_STATE_COMPLETED_HEADER_NAME: {
+                update_token(r, &session->httpHeaderFieldName.bytes, &session->httpHeaderFieldName.numBytes);
+            } break;
+            case util_HTTP_READER_STATE_READING_HEADER_VALUE: {
+                update_token(r, &session->httpHeaderFieldValue.bytes, &session->httpHeaderFieldValue.numBytes);
+            } break;
+            case util_HTTP_READER_STATE_COMPLETED_HEADER_VALUE: {
+                update_token(r, &session->httpHeaderFieldValue.bytes, &session->httpHeaderFieldValue.numBytes);
+                HAPAssert(session->httpHeaderFieldName.bytes);
+                if ((session->httpHeaderFieldName.numBytes == 14) &&
+                    (session->httpHeaderFieldName.bytes[0] == 'C' || session->httpHeaderFieldName.bytes[0] == 'c') &&
+                    (session->httpHeaderFieldName.bytes[1] == 'O' || session->httpHeaderFieldName.bytes[1] == 'o') &&
+                    (session->httpHeaderFieldName.bytes[2] == 'N' || session->httpHeaderFieldName.bytes[2] == 'n') &&
+                    (session->httpHeaderFieldName.bytes[3] == 'T' || session->httpHeaderFieldName.bytes[3] == 't') &&
+                    (session->httpHeaderFieldName.bytes[4] == 'E' || session->httpHeaderFieldName.bytes[4] == 'e') &&
+                    (session->httpHeaderFieldName.bytes[5] == 'N' || session->httpHeaderFieldName.bytes[5] == 'n') &&
+                    (session->httpHeaderFieldName.bytes[6] == 'T' || session->httpHeaderFieldName.bytes[6] == 't') &&
+                    (session->httpHeaderFieldName.bytes[7] == '-') &&
+                    (session->httpHeaderFieldName.bytes[8] == 'L' || session->httpHeaderFieldName.bytes[8] == 'l') &&
+                    (session->httpHeaderFieldName.bytes[9] == 'E' || session->httpHeaderFieldName.bytes[9] == 'e') &&
+                    (session->httpHeaderFieldName.bytes[10] == 'N' || session->httpHeaderFieldName.bytes[10] == 'n') &&
+                    (session->httpHeaderFieldName.bytes[11] == 'G' || session->httpHeaderFieldName.bytes[11] == 'g') &&
+                    (session->httpHeaderFieldName.bytes[12] == 'T' || session->httpHeaderFieldName.bytes[12] == 't') &&
+                    (session->httpHeaderFieldName.bytes[13] == 'H' || session->httpHeaderFieldName.bytes[13] == 'h')) {
+                    if (hasContentLength) {
+                        HAPLog(&logObject, "Request has multiple Content-Length headers.");
+                        session->httpParserError = true;
+                    } else {
+                        hasContentLength = true;
+                        read_http_content_length(session);
+                    }
+                } else if (
+                        (session->httpHeaderFieldName.numBytes == 12) &&
+                        (session->httpHeaderFieldName.bytes[0] == 'C' ||
+                         session->httpHeaderFieldName.bytes[0] == 'c') &&
+                        (session->httpHeaderFieldName.bytes[1] == 'O' ||
+                         session->httpHeaderFieldName.bytes[1] == 'o') &&
+                        (session->httpHeaderFieldName.bytes[2] == 'N' ||
+                         session->httpHeaderFieldName.bytes[2] == 'n') &&
+                        (session->httpHeaderFieldName.bytes[3] == 'T' ||
+                         session->httpHeaderFieldName.bytes[3] == 't') &&
+                        (session->httpHeaderFieldName.bytes[4] == 'E' ||
+                         session->httpHeaderFieldName.bytes[4] == 'e') &&
+                        (session->httpHeaderFieldName.bytes[5] == 'N' ||
+                         session->httpHeaderFieldName.bytes[5] == 'n') &&
+                        (session->httpHeaderFieldName.bytes[6] == 'T' ||
+                         session->httpHeaderFieldName.bytes[6] == 't') &&
+                        (session->httpHeaderFieldName.bytes[7] == '-') &&
+                        (session->httpHeaderFieldName.bytes[8] == 'T' ||
+                         session->httpHeaderFieldName.bytes[8] == 't') &&
+                        (session->httpHeaderFieldName.bytes[9] == 'Y' ||
+                         session->httpHeaderFieldName.bytes[9] == 'y') &&
+                        (session->httpHeaderFieldName.bytes[10] == 'P' ||
+                         session->httpHeaderFieldName.bytes[10] == 'p') &&
+                        (session->httpHeaderFieldName.bytes[11] == 'E' ||
+                         session->httpHeaderFieldName.bytes[11] == 'e')) {
+                    if (hasContentType) {
+                        HAPLog(&logObject, "Request has multiple Content-Type headers.");
+                        session->httpParserError = true;
+                    } else {
+                        hasContentType = true;
+                        read_http_content_type(session);
+                    }
+                }
+                session->httpHeaderFieldName.bytes = NULL;
+                session->httpHeaderFieldValue.bytes = NULL;
+            } break;
+            default: {
+            } break;
+        }
+    } while ((session->httpReaderPosition < session->inboundBuffer.position) &&
+             (r->state != util_HTTP_READER_STATE_DONE) && (r->state != util_HTTP_READER_STATE_ERROR) &&
+             !session->httpParserError);
+    HAPAssert(
+            (session->httpReaderPosition == session->inboundBuffer.position) ||
+            ((session->httpReaderPosition < session->inboundBuffer.position) &&
+             ((r->state == util_HTTP_READER_STATE_DONE) || (r->state == util_HTTP_READER_STATE_ERROR) ||
+              session->httpParserError)));
+}
+
+
+
+
+
+
+
 
 int udsAddrGenerate(struct sockaddr_un * sockaddr,const char * path)
 {
@@ -124,20 +344,22 @@ int CoapAgentMsgSend(int srcSockFd, struct sockaddr *dest, uint32_t addrlen,uint
   return RC_E_NONE;
 }
 
-uint32_t CoapAgentRecv(int fd)
+uint32_t CoapAgentRecv(COAP_Session* coap_session )
 {
 	ssize_t recvBytes;
 	//int rc;
 	int flags = 0;
-	uint8_t *buf;
+
+    HAPAssert(coap_session);
 
 
-
-	buf = (uint8_t *)calloc(1,1024);
 	/* set socket to non-blocking for this read */
 	flags |= MSG_DONTWAIT;
 
-	recvBytes = recvfrom(fd, buf, 1024, flags, 0, 0);
+	recvBytes = recvfrom(coap_session->sockFd,
+		coap_session->session.inboundBuffer.data,
+		coap_session->session.inboundBuffer.capacity,
+		flags, 0, 0);
 
 	if (recvBytes < 0)
 	{
@@ -151,9 +373,11 @@ uint32_t CoapAgentRecv(int fd)
 		return 0;
 	}
 
-	debug_log(DBG_LOG_INFO,"callback recv(%ld): %s",recvBytes,buf);
 
-	free(buf);
+	coap_session->session.inboundBuffer.limit = recvBytes;
+
+	read_http(&coap_session->session);
+
 	return recvBytes;
 }
 
