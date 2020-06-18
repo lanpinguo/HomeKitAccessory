@@ -299,7 +299,6 @@ int  CoapAgentCreate(const char* pathname,int *sockId)
 
 
 
-
 /*********************************************************************
 * @purpose  Send an message to the server.
 *
@@ -312,37 +311,63 @@ int  CoapAgentCreate(const char* pathname,int *sockId)
 *********************************************************************/
 int CoapAgentMsgSend(int srcSockFd, struct sockaddr *dest, uint32_t addrlen,uint8_t *msg,ssize_t len)
 {
-  ssize_t   bytesSent;
-  int flags = 0;
+	ssize_t   bytesSent;
+	int flags = 0;
 
-  ssize_t msgLen = len ;
+	ssize_t msgLen = len ;
 
 
-  
 
-  if(srcSockFd == 0)
-  {
-	  debug_log(DBG_LOG_ERR,
-						 "Failed to send pkt cb info to port ft on "
-						 "socket with fd %d. \r\n",
-						 srcSockFd);
-	  return RC_E_FAIL;
 
-  }
-  
-  bytesSent = sendto(srcSockFd, msg, msgLen, flags, dest, addrlen);
+	if(srcSockFd == 0)
+	{
+		HAPLogError(&logObject,
+				"Failed to send pkt cb info to port ft on socket with fd %d. \r\n",
+				srcSockFd);
+		
+		return RC_E_FAIL;
 
-  if (bytesSent != msgLen)
-  {
-    debug_log(DBG_LOG_ERR,
-                       "Failed to send pkt cb msg to client on "
-                       "socket with fd %d. Error (%d, %s).",
-                       srcSockFd, errno, strerror(errno));
-    return RC_E_FAIL;
-  }
+	}
 
-  return RC_E_NONE;
+	bytesSent = sendto(srcSockFd, msg, msgLen, flags, dest, addrlen);
+
+	if (bytesSent != msgLen)
+	{
+		HAPLogError(&logObject,
+			"Failed to send pkt cb msg to client on "
+			"socket with fd %d. Error (%d, %s).",
+			srcSockFd, errno, strerror(errno));
+		return RC_E_FAIL;
+	}
+
+	return RC_E_NONE;
 }
+
+
+HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session)
+{
+    HAPPrecondition(coap_session);
+
+	struct sockaddr_un server;	
+	uint32_t addrlen;
+
+
+	
+
+	HAPLogBufferDebug(&logObject,
+		coap_session->session.outboundBuffer.data,
+		coap_session->session.outboundBuffer.limit,"%s",__func__);
+	addrlen = udsAddrGenerate(&server,"/tmp/borderAgent");
+	CoapAgentMsgSend(coap_session->sockFd , 
+		(struct sockaddr*)&server, 
+		addrlen,
+		(uint8_t*)coap_session->session.outboundBuffer.data,
+		coap_session->session.outboundBuffer.limit);
+	HAPIPByteBufferClear(&coap_session->session.outboundBuffer);
+	coap_session->session.state = kHAPIPSessionState_Idle;
+	return kHAPError_None;
+}
+
 
 uint32_t CoapAgentRecv(COAP_Session* coap_session )
 {
@@ -368,15 +393,22 @@ uint32_t CoapAgentRecv(COAP_Session* coap_session )
 			/* Normal if no packets waiting to be received and caller didn't block. */
 			return 0;
 		}
-		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
-		      recvBytes, strerror(errno));
+		HAPLogError(&logObject,
+					"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+					recvBytes, strerror(errno));
 		return 0;
 	}
 
 
 	coap_session->session.inboundBuffer.limit = recvBytes;
+	
+	HAPLogBufferDebug(&logObject,
+		coap_session->session.inboundBuffer.data,
+		coap_session->session.inboundBuffer.limit,"%s",__func__);
 
 	read_http(&coap_session->session);
+	
+	HAPIPByteBufferClear(&coap_session->session.inboundBuffer);
 
 	return recvBytes;
 }
@@ -413,7 +445,7 @@ int CoapMsgRecvWithTimeout(int fd, uint8_t *buf,
 			  sizeof(struct timeval));
 			if (rv < 0)
 			{
-				debug_log(DBG_LOG_ERR,"Failed to set packet receive timeout. Error %d.\r\n", rv);
+				HAPLogError(&logObject,"Failed to set packet receive timeout. Error %d.\r\n", rv);
 				return RC_E_FAIL;
 			}
 		}
@@ -434,7 +466,7 @@ int CoapMsgRecvWithTimeout(int fd, uint8_t *buf,
 			/* Normal if no packets waiting to be received and caller didn't block. */
 			return RC_E_TIMEOUT;
 		}
-		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+		HAPLogError(&logObject,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
 		  recvBytes, strerror(errno));
 		return RC_E_FAIL;
 	}
@@ -443,6 +475,17 @@ int CoapMsgRecvWithTimeout(int fd, uint8_t *buf,
 	*recvLen = recvBytes;
 	return RC_E_NONE;
 }
+
+
+
+
+
+
+
+
+
+
+
 
 #define RECV_TIMEOUT	2000
 

@@ -10,6 +10,8 @@ typedef struct {
 
 
 
+    /** IP session state. */
+    HAPIPSessionState state;
 
     /** Time stamp of last activity on this session. */
     HAPTime stamp;
@@ -178,6 +180,7 @@ typedef struct
 int  CoapAgentCreate(const char* _Nonnull pathname,int * _Nullable sockId);
 
 uint32_t CoapAgentRecv(COAP_Session* _Nonnull coap_session );
+HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session);
 
 
 #endif /* _IPC_HELPER_H */
