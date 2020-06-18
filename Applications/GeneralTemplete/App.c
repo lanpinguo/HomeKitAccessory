@@ -663,9 +663,10 @@ HAPError HandleLightBulbOnWrite(
         err = HAPIPByteBufferAppendStringWithFormat(
                 &coap_session.session.outboundBuffer,
 				"PUT /characteristics HTTP/1.1\r\n"
-				"Host: lights.local:12345\r\n"
+				"Host: %s\r\n"
 				"Content-Type: application/hap+json\r\n"
                 "Content-Length: %lu\r\n\r\n",
+                accessoryConfiguration.baseInfo.name,
                 (unsigned long) content_length);
         HAPAssert(!err);
 
