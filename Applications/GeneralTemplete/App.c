@@ -667,6 +667,8 @@ HAPError HandleLightBulbOnRead(
         void* _Nullable context HAP_UNUSED) {
         
 	HAPError err;
+	HAPTime now;
+	static 	HAPTime last_time = 0;
 
 	*value = accessoryConfiguration.state.lightBulbOn;
     HAPLogInfo(&kHAPLog_Default, "%s: %s", __func__, *value ? "true" : "false");
@@ -674,18 +676,23 @@ HAPError HandleLightBulbOnRead(
 	/*
 	GET /characteristics HTTP/1.1 
 	Host: lights.local:12345
-
 	*/
-    err = HAPIPByteBufferAppendStringWithFormat(
-            &coap_session.session.outboundBuffer,
-			"GET /characteristics HTTP/1.1\r\n"
-			"Host: %s\r\n",
-            accessoryConfiguration.baseInfo.name);
-    HAPAssert(!err);
+	/* Wait for 5s, prevent from message sent too frequency */
+	now = HAPPlatformClockGetCurrent();
+	if(now - last_time > 5000){
+	    err = HAPIPByteBufferAppendStringWithFormat(
+	            &coap_session.session.outboundBuffer,
+				"GET /characteristics HTTP/1.1\r\n"
+				"Host: %s\r\n",
+	            accessoryConfiguration.baseInfo.name);
+	    HAPAssert(!err);
 
-	err = WriteMessageToCoapAgent(&coap_session,0);
-    HAPAssert(!err);
+		err = WriteMessageToCoapAgent(&coap_session,0);
+	    HAPAssert(!err);
 
+		last_time = HAPPlatformClockGetCurrent();
+
+	}
     return kHAPError_None;
 }
 
