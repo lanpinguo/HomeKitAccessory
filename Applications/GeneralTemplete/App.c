@@ -614,23 +614,35 @@ static void SaveAccessoryState(void) {
 }
 
 
-HAPError WriteMessageToCoapAgentSync(	
+HAPError WriteMessageToCoapAgent(	
 			COAP_Session* coap_session,
 	        uint64_t timeout){
 
+	HAPError err;
 	HAPPrecondition(coap_session);
 
+
+
+
 	coap_session->session.outboundBuffer.limit = coap_session->session.outboundBuffer.position;
-	coap_session->session.state = kHAPIPSessionState_Writing;
-	HAPPlatformFileHandleUpdateInterests(
-	    coap_session->fileHandle,
-	    (HAPPlatformFileHandleEvent) {
-	            .isReadyForReading = true,
-				.isReadyForWriting = true, 
-				.hasErrorConditionPending = false
-				},
-	    CoapAgentHandleCallback,
-	    coap_session);
+
+
+	err = CoapAgentSend(coap_session);
+
+	if(err != kHAPError_None){
+
+		coap_session->session.state = kHAPIPSessionState_Writing;
+		HAPPlatformFileHandleUpdateInterests(
+		    coap_session->fileHandle,
+		    (HAPPlatformFileHandleEvent) {
+		            .isReadyForReading = true,
+					.isReadyForWriting = true, 
+					.hasErrorConditionPending = false
+					},
+		    CoapAgentHandleCallback,
+		    coap_session);
+
+	}
 
     return kHAPError_None;
 
@@ -653,7 +665,10 @@ HAPError HandleLightBulbOnRead(
         const HAPBoolCharacteristicReadRequest* request HAP_UNUSED,
         bool* value,
         void* _Nullable context HAP_UNUSED) {
-    *value = accessoryConfiguration.state.lightBulbOn;
+        
+	HAPError err;
+
+	*value = accessoryConfiguration.state.lightBulbOn;
     HAPLogInfo(&kHAPLog_Default, "%s: %s", __func__, *value ? "true" : "false");
 
 	/*
@@ -661,6 +676,15 @@ HAPError HandleLightBulbOnRead(
 	Host: lights.local:12345
 
 	*/
+    err = HAPIPByteBufferAppendStringWithFormat(
+            &coap_session.session.outboundBuffer,
+			"GET /characteristics HTTP/1.1\r\n"
+			"Host: %s\r\n",
+            accessoryConfiguration.baseInfo.name);
+    HAPAssert(!err);
+
+	err = WriteMessageToCoapAgent(&coap_session,0);
+    HAPAssert(!err);
 
     return kHAPError_None;
 }
@@ -703,18 +727,9 @@ HAPError HandleLightBulbOnWrite(
 				"%s", json_body);
         HAPAssert(!err);
 
-		coap_session.session.outboundBuffer.limit = coap_session.session.outboundBuffer.position;
-        coap_session.session.state = kHAPIPSessionState_Writing;
-	    HAPPlatformFileHandleUpdateInterests(
-            coap_session.fileHandle,
-            (HAPPlatformFileHandleEvent) {
-                    .isReadyForReading = true,
-					.isReadyForWriting = true, 
-					.hasErrorConditionPending = false
-					},
-            CoapAgentHandleCallback,
-            &coap_session);
-
+		err = WriteMessageToCoapAgent(&coap_session,0);
+        HAPAssert(!err);
+		
         HAPAccessoryServerRaiseEvent(server, request->characteristic, request->service, request->accessory);
     }
 
