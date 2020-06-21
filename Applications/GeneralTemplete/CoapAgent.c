@@ -364,7 +364,6 @@ HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session)
 		(uint8_t*)coap_session->session.outboundBuffer.data,
 		coap_session->session.outboundBuffer.limit);
 	HAPIPByteBufferClear(&coap_session->session.outboundBuffer);
-	coap_session->session.state = kHAPIPSessionState_Idle;
 	return kHAPError_None;
 }
 
