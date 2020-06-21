@@ -327,6 +327,10 @@ HAPError EnvironmentPreconfig(int argc, char* _Nullable argv[_Nullable]){
 int main(int argc, char* _Nullable argv[_Nullable]) {
     HAPAssert(HAPGetCompatibilityVersion() == HAP_COMPATIBILITY_VERSION);
 
+	/* Ignore SIGHUP */
+	signal(SIGHUP, SIG_IGN);
+
+
     // Configure root directory
     (void)EnvironmentPreconfig(argc, argv);
 
