@@ -1,6 +1,6 @@
 // Copyright (c) 2015-2019 The HomeKit ADK Contributors
 //
-// Licensed under the Apache License, Version 2.0 (the “License”);
+// Licensed under the Apache License, Version 2.0 (the “License�?;
 // you may not use this file except in compliance with the License.
 // See [CONTRIBUTORS.md] for the list of HomeKit ADK project authors.
 
@@ -279,6 +279,10 @@ static void InitializeBLE() {
 
 int main(int argc, char* _Nullable argv[_Nullable]) {
     HAPAssert(HAPGetCompatibilityVersion() == HAP_COMPATIBILITY_VERSION);
+
+	/* Ignore SIGHUP */
+	signal(SIGHUP, SIG_IGN);
+
 
     // Initialize global platform objects.
     InitializePlatform();
