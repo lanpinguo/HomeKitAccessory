@@ -67,6 +67,15 @@
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+typedef struct {
+    /**
+     * The type of the service.
+     *
+     * - Maximum length 31 (excluding NULL-terminator).
+     */
+	char type[32];
+
+}AccessorySerivce;
 
 /**
  * HomeKit accessory basic information..
@@ -142,6 +151,8 @@ struct HAPAccessoryBase {
      * - Maximum length 64 (excluding NULL-terminator).
      */
     char hardwareVersion[65];
+
+	AccessorySerivce services[8];
 
 };
 
@@ -306,10 +317,66 @@ EXIT:
 
 }
 
+HAP_RESULT_USE_CHECK
+static size_t read_services_list(
+        struct util_json_reader* json_reader,
+        char* bytes,
+        size_t numBytes,
+        void* contexts,
+        size_t max_contexts,
+        size_t* numReadContexts,
+        HAPError* err) 
+{
+
+    size_t i, k;
+
+    HAPAssert(json_reader != NULL);
+    HAPAssert(bytes != NULL);
+    HAPAssert(contexts != NULL);
+    HAPAssert(numReadContexts != NULL);
+    HAPAssert(err != NULL);
+
+	k = 0;
+	*err = kHAPError_None;
+    k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+    if (json_reader->state == util_JSON_READER_STATE_BEGINNING_STRING) {
+        HAPAssert(k <= numBytes);
+        i = k;
+        k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+        if (json_reader->state != util_JSON_READER_STATE_COMPLETED_STRING) {
+            *err = kHAPError_InvalidData;
+			goto EXIT;
+        }
+        HAPAssert(i <= k);
+        HAPAssert(k <= numBytes);
+		if(*numReadContexts < max_contexts){
+			AccessorySerivce* service = &((AccessorySerivce* )contexts)[*numReadContexts];
+			/* Do not copy '"' char */
+	        HAPRawBufferCopyBytes(service->type,&bytes[i + 1],k - i - 2);
+            /*HAPLog(&kHAPLog_Default, "service[%ld]:%s", *numReadContexts, service->type);*/
+			*numReadContexts += 1;
+		}
+		else{
+	        *err = kHAPError_InvalidData;
+			goto EXIT;
+		}
+    } else {
+        *err = kHAPError_InvalidData;
+		goto EXIT;
+    }
+
+EXIT:
+
+	return k;
+
+}
+
 HAPError ParseBaseInfoFromJsonFormat(
 		char* bytes,
         size_t numBytes,
-        struct HAPAccessoryBase* baseInfo )
+        struct HAPAccessoryBase* baseInfo ,
+        size_t maxServices,
+        size_t *numServices)
 {
     size_t i, j, k;
     struct util_json_reader json_reader;
@@ -322,6 +389,7 @@ HAPError ParseBaseInfoFromJsonFormat(
 	uint32_t hasSerialNumber = 0;
 	uint32_t hasFirmwareVersion = 0;
 	uint32_t hasHardwareVersion = 0;
+	uint32_t hasServices = 0;
 
     HAPError err;
 
@@ -457,6 +525,34 @@ HAPError ParseBaseInfoFromJsonFormat(
 			}
 			hasHardwareVersion = true;
         } 
+		else if ((j - i == 10) && HAPRawBufferAreEqual(&bytes[i], "\"services\"", 10)) {
+            if (hasServices) {
+                HAPLog(&kHAPLog_Default, "Multiple hardwareVersion entries detected.");
+                return kHAPError_InvalidData;
+            }
+            k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+            if (json_reader.state != util_JSON_READER_STATE_BEGINNING_ARRAY) {
+                return kHAPError_InvalidData;
+            }
+            HAPAssert(k <= numBytes);
+            do {
+                k += read_services_list(
+                        &json_reader, &bytes[k], numBytes - k,
+                        baseInfo->services, maxServices, numServices, &err);
+                if (err) {
+                    return err;
+                }
+                HAPAssert(k <= numBytes);
+                k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+            } while ((k < numBytes) && (json_reader.state == util_JSON_READER_STATE_AFTER_VALUE_SEPARATOR));
+            HAPAssert(
+                    (k == numBytes) ||
+                    ((k < numBytes) && (json_reader.state != util_JSON_READER_STATE_AFTER_VALUE_SEPARATOR)));
+            if (json_reader.state != util_JSON_READER_STATE_COMPLETED_ARRAY) {
+                return kHAPError_InvalidData;
+            }
+			hasServices = true;
+        } 
 		else {
             size_t skippedBytes;
             err = HAPJSONUtilsSkipValue(&json_reader, &bytes[k], numBytes - k, &skippedBytes);
@@ -487,6 +583,7 @@ static void LoadAccessoryBaseInfo(void) {
     // Load persistent state if available
     bool found;
     size_t numBytes;
+    size_t numServices = 0;
 
 	baseInfo = calloc(1, sizeof(accessoryConfiguration.baseInfo));
 	if(baseInfo == NULL){
@@ -521,7 +618,9 @@ static void LoadAccessoryBaseInfo(void) {
 	err = ParseBaseInfoFromJsonFormat(
 		(char*)baseInfo,
 		strlen((char*)baseInfo),
-		&accessoryConfiguration.baseInfo);
+		&accessoryConfiguration.baseInfo,
+		8,
+		&numServices);
 	
     HAPLogInfo(&kHAPLog_Default, "baseInfo.aid: %ld", accessoryConfiguration.baseInfo.aid);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.category: %d", accessoryConfiguration.baseInfo.category);
@@ -531,7 +630,10 @@ static void LoadAccessoryBaseInfo(void) {
     HAPLogInfo(&kHAPLog_Default, "baseInfo.serialNumber: %s", accessoryConfiguration.baseInfo.serialNumber);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.firmwareVersion: %s", accessoryConfiguration.baseInfo.firmwareVersion);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.hardwareVersion: %s", accessoryConfiguration.baseInfo.hardwareVersion);
-	
+	for(uint32_t i = 0; i < numServices; i++){
+	    HAPLogInfo(&kHAPLog_Default, "baseInfo.servcie[%d]: %s",
+			i, accessoryConfiguration.baseInfo.services[i].type);
+	}
     if (err) {
         HAPAssert(err == kHAPError_Unknown);
         HAPFatalError();
