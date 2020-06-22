@@ -182,6 +182,7 @@ HAPError HandleLightBulbOnWrite(
     return kHAPError_None;
 }
 
+
 //----------------------------------------------------------------------------------------------------------------------
 
 void AccessoryNotification(
@@ -194,6 +195,48 @@ void AccessoryNotification(
     HAPAccessoryServerRaiseEvent(accessoryConfiguration.server, characteristic, service, accessory);
 }
 
+
+//----------------------------------------------------------------------------------------------------------------------
+static void handle_sensor_scan_timer(HAPPlatformTimerRef timer, void* _Nullable context) {
+	HAPError err;
+    HAPPlatformTimerRef scan_timer;
+    HAPPrecondition(context);
+	uint32_t motion;
+
+
+	HAPPlatformRandomNumberFill(&motion,sizeof(motion));
+		
+    if((motion % 10) > 5) {
+		AccessoryNotification(&accessory,&motionSensorService,&motionDetectedCharacteristic,NULL);
+	}
+
+    err = HAPPlatformTimerRegister(	&scan_timer, 
+									HAPPlatformClockGetCurrent() + 5 * HAPSecond,
+									handle_sensor_scan_timer,
+									accessoryConfiguration.server);
+
+}
+
+void ScanSensors(void)
+{
+	HAPError err;
+    HAPPlatformTimerRef scan_timer;
+	
+    err = HAPPlatformTimerRegister(	&scan_timer, 
+									HAPPlatformClockGetCurrent() + 5 * HAPSecond,
+									handle_sensor_scan_timer,
+									accessoryConfiguration.server);
+    if (err) {
+        HAPLog(&kHAPLog_Default, "Not enough resources to sensor scan timer!");
+        HAPFatalError();
+    }
+
+
+}
+
+
+
+
 void AppCreate(HAPAccessoryServerRef* server, HAPPlatformKeyValueStoreRef keyValueStore) {
     HAPPrecondition(server);
     HAPPrecondition(keyValueStore);
@@ -204,6 +247,8 @@ void AppCreate(HAPAccessoryServerRef* server, HAPPlatformKeyValueStoreRef keyVal
     accessoryConfiguration.server = server;
     accessoryConfiguration.keyValueStore = keyValueStore;
     LoadAccessoryState();
+
+	ScanSensors();
 }
 
 void AppRelease(void) {

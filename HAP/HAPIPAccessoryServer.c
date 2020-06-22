@@ -1,6 +1,6 @@
 // Copyright (c) 2015-2019 The HomeKit ADK Contributors
 //
-// Licensed under the Apache License, Version 2.0 (the “License”);
+// Licensed under the Apache License, Version 2.0 (the “License�?;
 // you may not use this file except in compliance with the License.
 // See [CONTRIBUTORS.md] for the list of HomeKit ADK project authors.
 
@@ -686,6 +686,8 @@ static void handle_event_notification_timer(HAPPlatformTimerRef timer, void* _Nu
     HAPPrecondition(timer == server->ip.eventNotificationTimer);
     server->ip.eventNotificationTimer = 0;
 
+    HAPLog(&logObject, "%d@%s!",__LINE__,__FILE__);
+
     HAPLogDebug(&logObject, "Event notification timer expired.");
     schedule_event_notifications(server_);
 }
@@ -695,6 +697,10 @@ static void write_event_notifications(HAPIPSessionDescriptor* session);
 static void schedule_event_notifications(HAPAccessoryServerRef* server_) {
     HAPPrecondition(server_);
     HAPAccessoryServer* server = (HAPAccessoryServer*) server_;
+
+
+    HAPLog(&logObject, "%d@%s!",__LINE__,__FILE__);
+
 
     if (server->ip.eventNotificationTimer) {
         HAPPlatformTimerDeregister(server->ip.eventNotificationTimer);
@@ -4008,6 +4014,7 @@ static HAPError engine_raise_event_on_session_(
             HAPPlatformTimerDeregister(server->ip.eventNotificationTimer);
             server->ip.eventNotificationTimer = 0;
         }
+        HAPLog(&logObject, "%d@%s!",__LINE__,__FILE__);
         err = HAPPlatformTimerRegister(&server->ip.eventNotificationTimer, 0, handle_event_notification_timer, server_);
         if (err) {
             HAPLog(&logObject, "Not enough resources to schedule event notification timer!");
