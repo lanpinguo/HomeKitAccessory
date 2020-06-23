@@ -195,7 +195,7 @@ static HAPAccessory accessory = { .aid = 1,
                                   .serialNumber = "099DB48E9E28",
                                   .firmwareVersion = "1",
                                   .hardwareVersion = "1",
-                                  .services = (const HAPService* const[]) { &accessoryInformationService,
+                                  .services = (const HAPService* []) { &accessoryInformationService,
                                                                             &hapProtocolInformationService,
                                                                             &pairingService,
                                                                             &lightBulbService,
@@ -572,6 +572,123 @@ HAPError ParseBaseInfoFromJsonFormat(
 	return kHAPError_None;
 }
 
+
+
+HAPError SwitchServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* input, HAPService** out)
+{
+	HAPService * service = calloc(1, sizeof(HAPService));
+	HAPDataCharacteristic* signature = calloc(1, sizeof(HAPDataCharacteristic));
+	HAPStringCharacteristic* name = calloc(1, sizeof(HAPStringCharacteristic)); 
+	HAPBoolCharacteristic *switch_on = calloc(1, sizeof(HAPBoolCharacteristic));
+
+	HAPAssert(iid);
+	HAPAssert(input);
+	HAPAssert(out);
+
+	HAPAssert(service);
+	HAPAssert(signature);
+	HAPAssert(name);
+	HAPAssert(switch_on);
+
+	
+	/**
+	 * The 'Service Signature' characteristic of the switch service.
+	 */
+	signature->format = kHAPCharacteristicFormat_Data;
+	signature->iid = *iid + 1;
+	signature->characteristicType = &kHAPCharacteristicType_ServiceSignature,
+	signature->debugDescription = kHAPCharacteristicDebugDescription_ServiceSignature;
+	signature->manufacturerDescription = NULL;
+	signature->properties.readable = true;
+    signature->properties.writable = false;
+    signature->properties.supportsEventNotification = false;
+    signature->properties.hidden = false;
+    signature->properties.requiresTimedWrite = false;
+    signature->properties.supportsAuthorizationData = false;
+    signature->properties.ip.controlPoint = true;
+    signature->properties.ble.supportsBroadcastNotification = false;
+    signature->properties.ble.supportsDisconnectedNotification = false;
+    signature->properties.ble.readableWithoutSecurity = false;
+    signature->properties.ble.writableWithoutSecurity = false;
+	signature->constraints.maxLength = 2097152 ;
+	signature->callbacks.handleRead = HAPHandleServiceSignatureRead;
+	signature->callbacks.handleWrite = NULL ;
+
+	/**
+	 * The 'Name' characteristic of the switch service.
+	 */
+	name->format = kHAPCharacteristicFormat_String;
+	name->iid =  *iid + 2;
+	name->characteristicType = &kHAPCharacteristicType_Name;
+	name->debugDescription = kHAPCharacteristicDebugDescription_Name;
+	name->manufacturerDescription = NULL;
+	name->properties.readable = true;
+	name->properties.writable = false;
+	name->properties.supportsEventNotification = false;
+	name->properties.hidden = false;
+	name->properties.requiresTimedWrite = false;
+	name->properties.supportsAuthorizationData = false;
+	name->properties.ip.controlPoint = false;
+	name->properties.ip.supportsWriteResponse = false ;
+	name->properties.ble.supportsBroadcastNotification = false;
+	name->properties.ble.supportsDisconnectedNotification = false;
+	name->properties.ble.readableWithoutSecurity = false;
+	name->properties.ble.writableWithoutSecurity = false ;
+	name->constraints.maxLength = 64;
+	name->callbacks.handleRead = HAPHandleNameRead;
+	name->callbacks.handleWrite = NULL ;
+
+	/**
+	 * The 'On' characteristic of the switch service.
+	 */
+	switch_on->format = kHAPCharacteristicFormat_Bool;
+	switch_on->iid = *iid + 3;
+	switch_on->characteristicType = &kHAPCharacteristicType_On;
+	switch_on->debugDescription = kHAPCharacteristicDebugDescription_On;
+	switch_on->manufacturerDescription = NULL;
+	switch_on->properties.readable = true;
+	switch_on->properties.writable = true;
+	switch_on->properties.supportsEventNotification = true;
+	switch_on->properties.hidden = false;
+	switch_on->properties.requiresTimedWrite = false;
+	switch_on->properties.supportsAuthorizationData = false;
+	switch_on->properties.ip.controlPoint = false; 
+	switch_on->properties.ip.supportsWriteResponse = false;
+	switch_on->properties.ble.supportsBroadcastNotification = true;
+	switch_on->properties.ble.supportsDisconnectedNotification = true;
+	switch_on->properties.ble.readableWithoutSecurity = false;
+	switch_on->properties.ble.writableWithoutSecurity = false ;
+	switch_on->callbacks.handleRead = HandleLightBulbOnRead;
+	switch_on->callbacks.handleWrite = HandleLightBulbOnWrite ;
+
+	/**
+	 * The switch service that contains the 'On' characteristic.
+	 */
+	HAPCharacteristic **characteristics = calloc(4, sizeof(HAPCharacteristic *));
+	characteristics[0] = signature;
+    characteristics[1] = name;
+    characteristics[2] = switch_on;
+    characteristics[3] = NULL;
+
+	char *service_name = calloc(1, 32);
+	snprintf(service_name,32,"switch-%ld",localId);
+	service->iid = *iid ;
+	service->serviceType = &kHAPServiceType_Switch;
+	service->debugDescription = kHAPServiceDebugDescription_Switch;
+	service->name = service_name;
+	service->properties.primaryService = true;
+	service->properties.hidden = false; 
+	service->properties.ble.supportsConfiguration = false;
+	service->linkedServices = NULL;
+	service->characteristics = (const HAPCharacteristic*  const* )characteristics; 
+
+	*iid += 4;
+	*out = service;
+	
+	return kHAPError_None;
+}
+
+
 /**
  * Load the accessory base info from persistent memory.
  */
@@ -584,7 +701,9 @@ static void LoadAccessoryBaseInfo(void) {
     bool found;
     size_t numBytes;
     size_t numServices = 0;
+	uint64_t iid;
 
+	
 	baseInfo = calloc(1, sizeof(accessoryConfiguration.baseInfo));
 	if(baseInfo == NULL){
 		goto DONE;
@@ -650,6 +769,35 @@ static void LoadAccessoryBaseInfo(void) {
 	accessory.hardwareVersion 	= accessoryConfiguration.baseInfo.hardwareVersion;
 
 
+    // Prepare HAPService.
+    HAPService** services = calloc(numServices + 4, sizeof(HAPService*));
+    if (!services) {
+        HAPLog(&kHAPLog_Default, "Cannot allocate more services.");
+		goto DONE;
+    }
+
+	services[0] = (HAPService*)&accessoryInformationService;
+	services[1] = (HAPService*)&hapProtocolInformationService;
+	services[2] = (HAPService*)&pairingService;
+
+
+	iid = 0x30;
+	for(uint32_t i = 0 ; i < numServices; i++){
+		if(HAPRawBufferAreEqual(accessoryConfiguration.baseInfo.services[i].type, "switch", 6)){
+			err = SwitchServiceAdd(	&iid, i + 1, &accessoryConfiguration.baseInfo.services[i],
+									(HAPService**)&services[i + 3]);
+		    if (err) {
+		        HAPAssert(err == kHAPError_Unknown);
+		        HAPFatalError();
+				goto DONE;
+		    }
+		}
+
+	}
+	
+	accessory.services = (const HAPService* const* )services;
+	
+    HAPLog(&kHAPLog_Default, "new iid: %ld",iid);
 
 DONE:
 	if(baseInfo != NULL){
@@ -810,6 +958,12 @@ HAPError HandleLightBulbOnWrite(
 	unsigned long content_length;
 	
 	
+    HAPLogInfo(&kHAPLog_Default, "%s,request iid: %ld, local id:%ld",
+		__func__,
+		request->characteristic->iid,
+		(request->characteristic->iid - 0x30) /4);
+
+	
     HAPLogInfo(&kHAPLog_Default, "%s: %s", __func__, value ? "true" : "false");
 	
     if (accessoryConfiguration.state.lightBulbOn != value) {
@@ -818,7 +972,10 @@ HAPError HandleLightBulbOnWrite(
         SaveAccessoryState();
 
 		content_length = snprintf(json_body,256,
-							"{\"characteristics\" : [{\"aid\" : 2,\"iid\" : 8,\"value\" : %s}]}",
+							"{\"characteristics\" : "
+							"[{\"aid\" : 2,\"iid\" : %ld, \"localId\" : %ld,\"value\" : %s}]}",
+							request->characteristic->iid,
+							(request->characteristic->iid - 0x30) /4,
 							value ? "true" : "false");	
 
         err = HAPIPByteBufferAppendStringWithFormat(
