@@ -73,7 +73,14 @@ typedef struct {
      *
      * - Maximum length 31 (excluding NULL-terminator).
      */
-	char type[32];
+	char 		type[32];
+
+    /**
+     * The number of the service.
+     *
+     * - Maximum 8.
+     */
+	uint32_t 	number;
 
 }AccessorySerivce;
 
@@ -161,7 +168,7 @@ struct HAPAccessoryBase {
  */
 typedef struct {
     struct {
-        bool lightBulbOn;
+        bool On[8];
     } state;
     HAPAccessoryServerRef* server;
     HAPPlatformKeyValueStoreRef keyValueStore;
@@ -322,14 +329,16 @@ static size_t read_services_list(
         struct util_json_reader* json_reader,
         char* bytes,
         size_t numBytes,
-        void* contexts,
+        AccessorySerivce* contexts,
         size_t max_contexts,
         size_t* numReadContexts,
         HAPError* err) 
 {
 
-    size_t i, k;
-
+    size_t i, j, k;
+	uint32_t hasType = 0;
+	uint32_t hasNumber = 0;
+	
     HAPAssert(json_reader != NULL);
     HAPAssert(bytes != NULL);
     HAPAssert(contexts != NULL);
@@ -338,8 +347,19 @@ static size_t read_services_list(
 
 	k = 0;
 	*err = kHAPError_None;
-    k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
-    if (json_reader->state == util_JSON_READER_STATE_BEGINNING_STRING) {
+
+    k = util_json_reader_read(json_reader, bytes, numBytes);
+    if (json_reader->state != util_JSON_READER_STATE_BEGINNING_OBJECT) {
+        *err = kHAPError_InvalidData;
+		goto EXIT;
+    }
+
+    do {
+        k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+        if (json_reader->state != util_JSON_READER_STATE_BEGINNING_STRING) {
+            *err = kHAPError_InvalidData;
+			goto EXIT;
+        }
         HAPAssert(k <= numBytes);
         i = k;
         k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
@@ -347,23 +367,62 @@ static size_t read_services_list(
             *err = kHAPError_InvalidData;
 			goto EXIT;
         }
-        HAPAssert(i <= k);
         HAPAssert(k <= numBytes);
-		if(*numReadContexts < max_contexts){
-			AccessorySerivce* service = &((AccessorySerivce* )contexts)[*numReadContexts];
-			/* Do not copy '"' char */
-	        HAPRawBufferCopyBytes(service->type,&bytes[i + 1],k - i - 2);
-            /*HAPLog(&kHAPLog_Default, "service[%ld]:%s", *numReadContexts, service->type);*/
-			*numReadContexts += 1;
-		}
-		else{
-	        *err = kHAPError_InvalidData;
+        j = k;
+        k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+        if (json_reader->state != util_JSON_READER_STATE_AFTER_NAME_SEPARATOR) {
+            *err = kHAPError_InvalidData;
 			goto EXIT;
 		}
-    } else {
-        *err = kHAPError_InvalidData;
-		goto EXIT;
-    }
+        HAPAssert(i <= j);
+        HAPAssert(j <= k);
+        HAPAssert(k <= numBytes);
+		
+		
+		if ((j - i == 8) && HAPRawBufferAreEqual(&bytes[i], "\"number\"", 8)) {
+	        uint64_t destNum;
+
+            if (hasNumber) {
+                HAPLog(&kHAPLog_Default, "Multiple number entries detected.");
+                *err = kHAPError_InvalidData;
+				goto EXIT;
+            }
+			k += try_read_number(json_reader, &bytes[k], numBytes - k, &destNum, err);
+			if(*err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				goto EXIT;
+			}
+			contexts->number = (uint32_t)destNum;
+			hasNumber = true;
+        } 		
+		else if ((j - i == 6) && HAPRawBufferAreEqual(&bytes[i], "\"type\"", 6)) {
+            if (hasType) {
+                HAPLog(&kHAPLog_Default, "Multiple type entries detected.");
+                *err = kHAPError_InvalidData;
+				goto EXIT;
+
+            }
+			k += try_read_string(json_reader, &bytes[k], numBytes - k, contexts->type, err);
+			if(*err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				goto EXIT;
+			}
+			(hasType) = true;
+			
+        } 
+		else {
+            size_t skippedBytes;
+            *err = HAPJSONUtilsSkipValue(json_reader, &bytes[k], numBytes - k, &skippedBytes);
+            if (*err) {
+                HAPAssert((*err == kHAPError_InvalidData) || (*err == kHAPError_OutOfResources));
+                goto EXIT;
+            }
+            k += skippedBytes;
+        }
+        HAPAssert(k <= numBytes);
+        k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+    } while ((k < numBytes) && (json_reader->state == util_JSON_READER_STATE_AFTER_VALUE_SEPARATOR));
+	
 
 EXIT:
 
@@ -689,6 +748,122 @@ HAPError SwitchServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* inp
 }
 
 
+
+
+HAPError SensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* input, HAPService** out)
+{
+	HAPService * service = calloc(1, sizeof(HAPService));
+	HAPDataCharacteristic* signature = calloc(1, sizeof(HAPDataCharacteristic));
+	HAPStringCharacteristic* name = calloc(1, sizeof(HAPStringCharacteristic)); 
+	HAPBoolCharacteristic *switch_on = calloc(1, sizeof(HAPBoolCharacteristic));
+
+	HAPAssert(iid);
+	HAPAssert(input);
+	HAPAssert(out);
+
+	HAPAssert(service);
+	HAPAssert(signature);
+	HAPAssert(name);
+	HAPAssert(switch_on);
+
+	
+	/**
+	 * The 'Service Signature' characteristic of the switch service.
+	 */
+	signature->format = kHAPCharacteristicFormat_Data;
+	signature->iid = *iid + 1;
+	signature->characteristicType = &kHAPCharacteristicType_ServiceSignature,
+	signature->debugDescription = kHAPCharacteristicDebugDescription_ServiceSignature;
+	signature->manufacturerDescription = NULL;
+	signature->properties.readable = true;
+    signature->properties.writable = false;
+    signature->properties.supportsEventNotification = false;
+    signature->properties.hidden = false;
+    signature->properties.requiresTimedWrite = false;
+    signature->properties.supportsAuthorizationData = false;
+    signature->properties.ip.controlPoint = true;
+    signature->properties.ble.supportsBroadcastNotification = false;
+    signature->properties.ble.supportsDisconnectedNotification = false;
+    signature->properties.ble.readableWithoutSecurity = false;
+    signature->properties.ble.writableWithoutSecurity = false;
+	signature->constraints.maxLength = 2097152 ;
+	signature->callbacks.handleRead = HAPHandleServiceSignatureRead;
+	signature->callbacks.handleWrite = NULL ;
+
+	/**
+	 * The 'Name' characteristic of the switch service.
+	 */
+	name->format = kHAPCharacteristicFormat_String;
+	name->iid =  *iid + 2;
+	name->characteristicType = &kHAPCharacteristicType_Name;
+	name->debugDescription = kHAPCharacteristicDebugDescription_Name;
+	name->manufacturerDescription = NULL;
+	name->properties.readable = true;
+	name->properties.writable = false;
+	name->properties.supportsEventNotification = false;
+	name->properties.hidden = false;
+	name->properties.requiresTimedWrite = false;
+	name->properties.supportsAuthorizationData = false;
+	name->properties.ip.controlPoint = false;
+	name->properties.ip.supportsWriteResponse = false ;
+	name->properties.ble.supportsBroadcastNotification = false;
+	name->properties.ble.supportsDisconnectedNotification = false;
+	name->properties.ble.readableWithoutSecurity = false;
+	name->properties.ble.writableWithoutSecurity = false ;
+	name->constraints.maxLength = 64;
+	name->callbacks.handleRead = HAPHandleNameRead;
+	name->callbacks.handleWrite = NULL ;
+
+	/**
+	 * The 'On' characteristic of the switch service.
+	 */
+	switch_on->format = kHAPCharacteristicFormat_Bool;
+	switch_on->iid = *iid + 3;
+	switch_on->characteristicType = &kHAPCharacteristicType_On;
+	switch_on->debugDescription = kHAPCharacteristicDebugDescription_On;
+	switch_on->manufacturerDescription = NULL;
+	switch_on->properties.readable = true;
+	switch_on->properties.writable = true;
+	switch_on->properties.supportsEventNotification = true;
+	switch_on->properties.hidden = false;
+	switch_on->properties.requiresTimedWrite = false;
+	switch_on->properties.supportsAuthorizationData = false;
+	switch_on->properties.ip.controlPoint = false; 
+	switch_on->properties.ip.supportsWriteResponse = false;
+	switch_on->properties.ble.supportsBroadcastNotification = true;
+	switch_on->properties.ble.supportsDisconnectedNotification = true;
+	switch_on->properties.ble.readableWithoutSecurity = false;
+	switch_on->properties.ble.writableWithoutSecurity = false ;
+	switch_on->callbacks.handleRead = HandleLightBulbOnRead;
+	switch_on->callbacks.handleWrite = HandleLightBulbOnWrite ;
+
+	/**
+	 * The switch service that contains the 'On' characteristic.
+	 */
+	HAPCharacteristic **characteristics = calloc(4, sizeof(HAPCharacteristic *));
+	characteristics[0] = signature;
+    characteristics[1] = name;
+    characteristics[2] = switch_on;
+    characteristics[3] = NULL;
+
+	char *service_name = calloc(1, 32);
+	snprintf(service_name,32,"switch-%ld",localId);
+	service->iid = *iid ;
+	service->serviceType = &kHAPServiceType_Switch;
+	service->debugDescription = kHAPServiceDebugDescription_Switch;
+	service->name = service_name;
+	service->properties.primaryService = true;
+	service->properties.hidden = false; 
+	service->properties.ble.supportsConfiguration = false;
+	service->linkedServices = NULL;
+	service->characteristics = (const HAPCharacteristic*  const* )characteristics; 
+
+	*iid += 4;
+	*out = service;
+	
+	return kHAPError_None;
+}
+
 /**
  * Load the accessory base info from persistent memory.
  */
@@ -750,8 +925,9 @@ static void LoadAccessoryBaseInfo(void) {
     HAPLogInfo(&kHAPLog_Default, "baseInfo.firmwareVersion: %s", accessoryConfiguration.baseInfo.firmwareVersion);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.hardwareVersion: %s", accessoryConfiguration.baseInfo.hardwareVersion);
 	for(uint32_t i = 0; i < numServices; i++){
-	    HAPLogInfo(&kHAPLog_Default, "baseInfo.servcie[%d]: %s",
-			i, accessoryConfiguration.baseInfo.services[i].type);
+	    HAPLogInfo(&kHAPLog_Default, "baseInfo.servcie[%d]: %s, number: %d",
+			i, accessoryConfiguration.baseInfo.services[i].type,
+			accessoryConfiguration.baseInfo.services[i].number);
 	}
     if (err) {
         HAPAssert(err == kHAPError_Unknown);
@@ -918,9 +1094,11 @@ HAPError HandleLightBulbOnRead(
         
 	HAPError err;
 	HAPTime now;
+	uint32_t localId = 0;
 	static 	HAPTime last_time = 0;
 
-	*value = accessoryConfiguration.state.lightBulbOn;
+	localId = (request->characteristic->iid - 0x30) /4;
+	*value = accessoryConfiguration.state.On[localId];
     HAPLogInfo(&kHAPLog_Default, "%s: %s", __func__, *value ? "true" : "false");
 
 	/*
@@ -956,18 +1134,23 @@ HAPError HandleLightBulbOnWrite(
 	HAPError err;
 	char json_body[256];
 	unsigned long content_length;
+	uint64_t localId = 0;
+
+
+	localId = (request->characteristic->iid - 0x30) /4;
 	
-	
+	HAPAssert(localId < 8);
+
     HAPLogInfo(&kHAPLog_Default, "%s,request iid: %ld, local id:%ld",
-		__func__,
-		request->characteristic->iid,
-		(request->characteristic->iid - 0x30) /4);
+				__func__,
+				request->characteristic->iid,
+				localId);
 
 	
     HAPLogInfo(&kHAPLog_Default, "%s: %s", __func__, value ? "true" : "false");
 	
-    if (accessoryConfiguration.state.lightBulbOn != value) {
-        accessoryConfiguration.state.lightBulbOn = value;
+    if (accessoryConfiguration.state.On[localId] != value) {
+        accessoryConfiguration.state.On[localId] = value;
 
         SaveAccessoryState();
 
@@ -975,7 +1158,7 @@ HAPError HandleLightBulbOnWrite(
 							"{\"characteristics\" : "
 							"[{\"aid\" : 2,\"iid\" : %ld, \"localId\" : %ld,\"value\" : %s}]}",
 							request->characteristic->iid,
-							(request->characteristic->iid - 0x30) /4,
+							localId,
 							value ? "true" : "false");	
 
         err = HAPIPByteBufferAppendStringWithFormat(
