@@ -324,14 +324,13 @@ EXIT:
 
 }
 
+
 HAP_RESULT_USE_CHECK
-static size_t read_services_list(
+static size_t read_service(
         struct util_json_reader* json_reader,
         char* bytes,
         size_t numBytes,
-        AccessorySerivce* contexts,
-        size_t max_contexts,
-        size_t* numReadContexts,
+        AccessorySerivce* service,
         HAPError* err) 
 {
 
@@ -341,11 +340,9 @@ static size_t read_services_list(
 	
     HAPAssert(json_reader != NULL);
     HAPAssert(bytes != NULL);
-    HAPAssert(contexts != NULL);
-    HAPAssert(numReadContexts != NULL);
+    HAPAssert(service != NULL);
     HAPAssert(err != NULL);
 
-	k = 0;
 	*err = kHAPError_None;
 
     k = util_json_reader_read(json_reader, bytes, numBytes);
@@ -392,7 +389,7 @@ static size_t read_services_list(
                 HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
 				goto EXIT;
 			}
-			contexts->number = (uint32_t)destNum;
+			service->number = (uint32_t)destNum;
 			hasNumber = true;
         } 		
 		else if ((j - i == 6) && HAPRawBufferAreEqual(&bytes[i], "\"type\"", 6)) {
@@ -402,12 +399,12 @@ static size_t read_services_list(
 				goto EXIT;
 
             }
-			k += try_read_string(json_reader, &bytes[k], numBytes - k, contexts->type, err);
+			k += try_read_string(json_reader, &bytes[k], numBytes - k, service->type, err);
 			if(*err != kHAPError_None){
                 HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
 				goto EXIT;
 			}
-			(hasType) = true;
+			hasType = true;
 			
         } 
 		else {
@@ -422,7 +419,11 @@ static size_t read_services_list(
         HAPAssert(k <= numBytes);
         k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
     } while ((k < numBytes) && (json_reader->state == util_JSON_READER_STATE_AFTER_VALUE_SEPARATOR));
-	
+
+	if(json_reader->state != util_JSON_READER_STATE_COMPLETED_OBJECT){
+        *err = kHAPError_InvalidData;
+		goto EXIT;
+	}
 
 EXIT:
 
@@ -594,13 +595,20 @@ HAPError ParseBaseInfoFromJsonFormat(
                 return kHAPError_InvalidData;
             }
             HAPAssert(k <= numBytes);
+			*numServices = 0;
             do {
-                k += read_services_list(
+				if(*numServices >= maxServices){
+	                HAPLogError(&kHAPLog_Default, " Service number %ld is out of range %ld.",
+								*numServices, maxServices);
+	                return kHAPError_InvalidData;
+				}
+                k += read_service(
                         &json_reader, &bytes[k], numBytes - k,
-                        baseInfo->services, maxServices, numServices, &err);
+                        &baseInfo->services[*numServices], &err);
                 if (err) {
                     return err;
                 }
+				*numServices += 1;
                 HAPAssert(k <= numBytes);
                 k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
             } while ((k < numBytes) && (json_reader.state == util_JSON_READER_STATE_AFTER_VALUE_SEPARATOR));
