@@ -20,6 +20,8 @@
 
 
 #include "HAPPlatform.h"
+#include "HAPPlatformThread.h"
+
 
 typedef struct sal_mutex_s{
     char mutex_opaque_type;
@@ -34,9 +36,6 @@ typedef struct sal_spinlock_s {
 } *sal_spinlock_t;
 
 
-typedef struct sal_thread_s{
-    char thread_opaque_type;
-} *sal_thread_t;
 
 typedef struct thread_info_s {
     void		(*f)(void *);
@@ -88,7 +87,8 @@ static const HAPLogObject logObject = { .subsystem = kHAPPlatform_LogSubsystem, 
  */
 
 sal_thread_t
-HAPPlatformThreadCreate(char *name, int ss, int prio, void *(f)(void *), void *arg)
+HAPPlatformThreadCreate(char *name, int ss, int prio,
+									void *(f)(void *), void * _Nullable arg)
 {
     pthread_attr_t	attribs;
     struct sched_param param;
