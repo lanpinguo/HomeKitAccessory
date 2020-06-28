@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <stdint.h>
 
 #include "HAP.h"
 
@@ -36,6 +38,7 @@
 
 #include "HAPPlatform.h"
 #include "HAPPlatformFileHandle.h"
+#include "HAPPlatformThread.h"
 
 #include "HAP+Internal.h"
 
@@ -1515,6 +1518,18 @@ HAPError COAP_SocketNameFormat(char * bytes, size_t numBytes)
 	return kHAPError_None;
 }
 
+#define delay_ms(a)    usleep(a*1000)
+
+void * runloop_down(void * args){
+
+	while(1){
+
+		delay_ms(2000);
+        HAPLogDebug(&kHAPLog_Default, "%s: runloop_down .", __func__);
+	}
+
+}
+
 
 void AccessoryCoapAgentCreate(void)
 {
@@ -1564,6 +1579,10 @@ void AccessoryCoapAgentCreate(void)
         HAPLogError(&kHAPLog_Default, "%s: HAPPlatformFileHandleRegister failed: %u.", __func__, err);
         HAPFatalError();
     }
+
+
+	HAPPlatformThreadCreate("coap-runloop", 2048, 100, runloop_down, NULL);
+
 }
 
 
