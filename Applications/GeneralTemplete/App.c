@@ -41,7 +41,7 @@
 #include "HAPPlatformThread.h"
 
 #include "HAP+Internal.h"
-
+#include "HAPPlatformRunSecondLoop.h"
 #include "CoapAgent.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -70,6 +70,7 @@
 
 
 #define MAX_SERVICES	8
+#define delay_ms(a)    usleep(a*1000)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -194,6 +195,12 @@ void CoapAgentHandleCallback(
         void* _Nullable context);
 HAP_RESULT_USE_CHECK
 HAPError HandleTemperatureRead(
+        HAPAccessoryServerRef* server HAP_UNUSED,
+        const HAPFloatCharacteristicReadRequest* request HAP_UNUSED,
+        float* value,
+        void* _Nullable context HAP_UNUSED);
+
+HAPError HandleHumidityRead(
         HAPAccessoryServerRef* server HAP_UNUSED,
         const HAPFloatCharacteristicReadRequest* request HAP_UNUSED,
         float* value,
@@ -985,7 +992,7 @@ HAPError HumiditySensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySeri
 	current_humidity->constraints.maximumValue 	= 100;
 	current_humidity->constraints.stepValue 	= 0.1;
 
-	current_humidity->callbacks.handleRead = HandleTemperatureRead;
+	current_humidity->callbacks.handleRead = HandleHumidityRead;
 	current_humidity->callbacks.handleWrite = NULL ;
 
 	/**
@@ -1256,7 +1263,7 @@ HAPError WriteMessageToCoapAgent(
 	if(err != kHAPError_None){
 
 		coap_session->session.state = kHAPIPSessionState_Writing;
-		HAPPlatformFileHandleUpdateInterests(
+		HAPPlatformSecondFileHandleUpdateInterests(
 		    coap_session->fileHandle,
 		    (HAPPlatformFileHandleEvent) {
 		            .isReadyForReading = true,
@@ -1361,7 +1368,7 @@ HAPError HandleLightBulbOnWrite(
 
         err = HAPIPByteBufferAppendStringWithFormat(
                 &coap_session.session.outboundBuffer,
-				"PUT /characteristics HTTP/1.1\r\n"
+				"PUT /switchs HTTP/1.1\r\n"
 				"Host: %s\r\n"
 				"Content-Type: application/hap+json\r\n"
                 "Content-Length: %lu\r\n\r\n",
@@ -1389,9 +1396,72 @@ HAPError HandleTemperatureRead(
         const HAPFloatCharacteristicReadRequest* request HAP_UNUSED,
         float* value,
         void* _Nullable context HAP_UNUSED) {
+	HAPError err;
 	uint32_t a;
+	HAPTime now;
+	static 	HAPTime last_time = 0;
 	float temp;
-	
+	/*
+	GET /characteristics HTTP/1.1 
+	Host: lights.local:12345
+	*/
+	/* Wait for 2s, prevent from message sent too frequency */
+	now = HAPPlatformClockGetCurrent();
+	if(now - last_time > 2000){
+	    err = HAPIPByteBufferAppendStringWithFormat(
+	            &coap_session.session.outboundBuffer,
+				"GET /temperature HTTP/1.1\r\n"
+				"Host: %s\r\n",
+	            accessoryConfiguration.baseInfo.name);
+	    HAPAssert(!err);
+
+		err = WriteMessageToCoapAgent(&coap_session,0);
+	    HAPAssert(!err);
+
+		last_time = HAPPlatformClockGetCurrent();
+
+	}
+	HAPPlatformRandomNumberFill(&a,sizeof(a));	
+	temp = (a % 100) / 10.0;
+    *value = 25 + temp;
+    HAPLogInfo(&kHAPLog_Default, "%g", *value);
+
+    return kHAPError_None;
+}
+
+
+
+HAP_RESULT_USE_CHECK
+HAPError HandleHumidityRead(
+        HAPAccessoryServerRef* server HAP_UNUSED,
+        const HAPFloatCharacteristicReadRequest* request HAP_UNUSED,
+        float* value,
+        void* _Nullable context HAP_UNUSED) {
+	HAPError err;
+	uint32_t a;
+	HAPTime now;
+	static 	HAPTime last_time = 0;
+	float temp;
+	/*
+	GET /characteristics HTTP/1.1 
+	Host: lights.local:12345
+	*/
+	/* Wait for 2s, prevent from message sent too frequency */
+	now = HAPPlatformClockGetCurrent();
+	if(now - last_time > 2000){
+	    err = HAPIPByteBufferAppendStringWithFormat(
+	            &coap_session.session.outboundBuffer,
+				"GET /humidity HTTP/1.1\r\n"
+				"Host: %s\r\n",
+	            accessoryConfiguration.baseInfo.name);
+	    HAPAssert(!err);
+
+		err = WriteMessageToCoapAgent(&coap_session,0);
+	    HAPAssert(!err);
+
+		last_time = HAPPlatformClockGetCurrent();
+
+	}
 	HAPPlatformRandomNumberFill(&a,sizeof(a));	
 	temp = (a % 100) / 10.0;
     *value = 25 + temp;
@@ -1518,16 +1588,18 @@ HAPError COAP_SocketNameFormat(char * bytes, size_t numBytes)
 	return kHAPError_None;
 }
 
-#define delay_ms(a)    usleep(a*1000)
 
-void * runloop_down(void * args){
+void * RunSecondLoop(void * args){
 
-	while(1){
+	delay_ms(2000);
 
-		delay_ms(2000);
-        HAPLogDebug(&kHAPLog_Default, "%s: runloop_down .", __func__);
-	}
+	HAPPlatformRunSecondLoopCreate();
 
+	HAPPlatformRunSecondLoopRun();
+
+	HAPLogDebug(&kHAPLog_Default, "%s: second loop exit", __func__);
+
+	return NULL;
 }
 
 
@@ -1568,7 +1640,7 @@ void AccessoryCoapAgentCreate(void)
     coap_session.session.timedWriteExpirationTime = 0;
     coap_session.session.timedWritePID = 0;
 
-    err = HAPPlatformFileHandleRegister(
+    err = HAPPlatformSecondFileHandleRegister(
             &coap_session.fileHandle,
             coap_session.sockFd,
             (HAPPlatformFileHandleEvent) {
@@ -1581,7 +1653,7 @@ void AccessoryCoapAgentCreate(void)
     }
 
 
-	HAPPlatformThreadCreate("coap-runloop", 2048, 100, runloop_down, NULL);
+	HAPPlatformThreadCreate("coap-runloop", 1024*8, 100, RunSecondLoop, NULL);
 
 }
 

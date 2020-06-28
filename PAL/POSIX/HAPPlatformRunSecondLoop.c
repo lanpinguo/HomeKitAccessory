@@ -291,250 +291,10 @@ static void ProcessSelectedFileHandles(
     }
 }
 
-HAP_RESULT_USE_CHECK
-HAPError HAPPlatformSecondTimerRegister(
-        HAPPlatformTimerRef* timer_,
-        HAPTime deadline,
-        HAPPlatformTimerCallback callback,
-        void* _Nullable context) {
-    HAPPrecondition(timer_);
-    HAPPlatformTimer* _Nullable* newTimer = (HAPPlatformTimer * _Nullable*) timer_;
-    HAPPrecondition(callback);
 
-    // Prepare timer.
-    *newTimer = calloc(1, sizeof(HAPPlatformTimer));
-    if (!*newTimer) {
-        HAPLog(&logObject, "Cannot allocate more timers.");
-        return kHAPError_OutOfResources;
-    }
-    (*newTimer)->deadline = deadline ? deadline : 1;
-    (*newTimer)->callback = callback;
-    (*newTimer)->context = context;
 
-    // Insert timer.
-    for (HAPPlatformTimer* _Nullable* nextTimer = &runSecondLoop.timers;; nextTimer = &(*nextTimer)->nextTimer) {
-        if (!*nextTimer) {
-            (*newTimer)->nextTimer = NULL;
-            *nextTimer = *newTimer;
-            break;
-        }
-        if ((*nextTimer)->deadline > deadline) {
-            // Search condition must be '>' and not '>=' to ensure that timers fire in ascending order of their
-            // deadlines and that timers registered with the same deadline fire in order of registration.
-            (*newTimer)->nextTimer = *nextTimer;
-            *nextTimer = *newTimer;
-            break;
-        }
-    }
+void HAPPlatformRunSecondLoopCreate(void) {
 
-    return kHAPError_None;
-}
-
-void HAPPlatformSecondTimerDeregister(HAPPlatformTimerRef timer_) {
-    HAPPrecondition(timer_);
-    HAPPlatformTimer* timer = (HAPPlatformTimer*) timer_;
-
-    // Find and remove timer.
-    for (HAPPlatformTimer* _Nullable* nextTimer = &runSecondLoop.timers; *nextTimer; nextTimer = &(*nextTimer)->nextTimer) {
-        if (*nextTimer == timer) {
-            *nextTimer = timer->nextTimer;
-            HAPPlatformFreeSafe(timer);
-            return;
-        }
-    }
-
-    // Timer not found.
-    HAPFatalError();
-}
-
-static void ProcessExpiredTimers(void) {
-    // Get current time.
-    HAPTime now = HAPPlatformClockGetCurrent();
-
-    // Enumerate timers.
-    while (runSecondLoop.timers) {
-        if (runSecondLoop.timers->deadline > now) {
-            break;
-        }
-
-        // Update head, so that reentrant add / removes do not interfere.
-        HAPPlatformTimer* expiredTimer = runSecondLoop.timers;
-        runSecondLoop.timers = runSecondLoop.timers->nextTimer;
-
-        // Invoke callback.
-        expiredTimer->callback((HAPPlatformTimerRef) expiredTimer, expiredTimer->context);
-
-        // Free memory.
-        HAPPlatformFreeSafe(expiredTimer);
-    }
-}
-
-static void ClosePipe(int fileDescriptor0, int fileDescriptor1) {
-    if (fileDescriptor0 != -1) {
-        HAPLogDebug(&logObject, "close(%d);", fileDescriptor0);
-        int e = close(fileDescriptor0);
-        if (e != 0) {
-            int _errno = errno;
-            HAPAssert(e == -1);
-            HAPPlatformLogPOSIXError(
-                    kHAPLogType_Error,
-                    "Closing pipe failed (log, fileDescriptor0).",
-                    _errno,
-                    __func__,
-                    HAP_FILE,
-                    __LINE__);
-        }
-    }
-    if (fileDescriptor1 != -1) {
-        HAPLogDebug(&logObject, "close(%d);", fileDescriptor1);
-        int e = close(fileDescriptor1);
-        if (e != 0) {
-            int _errno = errno;
-            HAPAssert(e == -1);
-            HAPPlatformLogPOSIXError(
-                    kHAPLogType_Error,
-                    "Closing pipe failed (log, fileDescriptor1).",
-                    _errno,
-                    __func__,
-                    HAP_FILE,
-                    __LINE__);
-        }
-    }
-}
-
-static void HandleSelfPipeFileHandleCallback(
-        HAPPlatformFileHandleRef fileHandle,
-        HAPPlatformFileHandleEvent fileHandleEvents,
-        void* _Nullable context HAP_UNUSED) {
-    HAPAssert(fileHandle);
-    HAPAssert(fileHandle == runSecondLoop.selfPipeFileHandle);
-    HAPAssert(fileHandleEvents.isReadyForReading);
-
-    HAPAssert(runSecondLoop.numSelfPipeBytes < sizeof runSecondLoop.selfPipeBytes);
-
-    ssize_t n;
-    do {
-        n =
-                read(runSecondLoop.selfPipeFileDescriptor0,
-                     &runSecondLoop.selfPipeBytes[runSecondLoop.numSelfPipeBytes],
-                     sizeof runSecondLoop.selfPipeBytes - runSecondLoop.numSelfPipeBytes);
-    } while (n == -1 && errno == EINTR);
-    if (n == -1 && errno == EAGAIN) {
-        return;
-    }
-    if (n < 0) {
-        int _errno = errno;
-        HAPAssert(n == -1);
-        HAPPlatformLogPOSIXError(kHAPLogType_Error, "Self pipe read failed.", _errno, __func__, HAP_FILE, __LINE__);
-        HAPFatalError();
-    }
-    if (n == 0) {
-        HAPLogError(&logObject, "Self pipe read returned EOF.");
-        HAPFatalError();
-    }
-
-    HAPAssert((size_t) n <= sizeof runSecondLoop.selfPipeBytes - runSecondLoop.numSelfPipeBytes);
-    runSecondLoop.numSelfPipeBytes += (size_t) n;
-    for (;;) {
-        if (runSecondLoop.numSelfPipeBytes < sizeof(HAPPlatformRunLoopCallback) + 1) {
-            break;
-        }
-        size_t contextSize = (size_t) runSecondLoop.selfPipeBytes[sizeof(HAPPlatformRunLoopCallback)];
-        if (runSecondLoop.numSelfPipeBytes < sizeof(HAPPlatformRunLoopCallback) + 1 + contextSize) {
-            break;
-        }
-
-        HAPPlatformRunLoopCallback callback;
-        HAPRawBufferCopyBytes(&callback, &runSecondLoop.selfPipeBytes[0], sizeof(HAPPlatformRunLoopCallback));
-        HAPRawBufferCopyBytes(
-                &runSecondLoop.selfPipeBytes[0],
-                &runSecondLoop.selfPipeBytes[sizeof(HAPPlatformRunLoopCallback) + 1],
-                runSecondLoop.numSelfPipeBytes - (sizeof(HAPPlatformRunLoopCallback) + 1));
-        runSecondLoop.numSelfPipeBytes -= (sizeof(HAPPlatformRunLoopCallback) + 1);
-
-        // Issue memory barrier to ensure visibility of data referenced by callback context.
-        __atomic_signal_fence(__ATOMIC_SEQ_CST);
-        __atomic_thread_fence(__ATOMIC_SEQ_CST);
-
-        callback(contextSize ? &runSecondLoop.selfPipeBytes[0] : NULL, contextSize);
-
-        HAPRawBufferCopyBytes(
-                &runSecondLoop.selfPipeBytes[0], &runSecondLoop.selfPipeBytes[contextSize], runSecondLoop.numSelfPipeBytes - contextSize);
-        runSecondLoop.numSelfPipeBytes -= contextSize;
-    }
-}
-
-void HAPPlatformRunSecondLoopCreate(const HAPPlatformRunLoopOptions* options) {
-    HAPPrecondition(options);
-    HAPPrecondition(options->keyValueStore);
-    HAPError err;
-
-    HAPLogDebug(&logObject, "Storage configuration: runLoop = %lu", (unsigned long) sizeof runSecondLoop);
-    HAPLogDebug(&logObject, "Storage configuration: fileHandle = %lu", (unsigned long) sizeof(HAPPlatformFileHandle));
-    HAPLogDebug(&logObject, "Storage configuration: timer = %lu", (unsigned long) sizeof(HAPPlatformTimer));
-
-    // Open self-pipe
-
-    HAPPrecondition(runSecondLoop.selfPipeFileDescriptor0 == -1);
-    HAPPrecondition(runSecondLoop.selfPipeFileDescriptor1 == -1);
-
-    int selfPipefileDescriptors[2];
-
-    int e = pipe(selfPipefileDescriptors);
-    if (e != 0) {
-        int _errno = errno;
-        HAPAssert(e == -1);
-        HAPPlatformLogPOSIXError(
-                kHAPLogType_Error,
-                "Self pipe creation failed (log, system call 'pipe').",
-                _errno,
-                __func__,
-                HAP_FILE,
-                __LINE__);
-        HAPFatalError();
-    }
-
-    HAPAssert(selfPipefileDescriptors[0] != -1);
-    e = fcntl(selfPipefileDescriptors[0], F_SETFL, O_NONBLOCK);
-    if (e == -1) {
-        HAPPlatformLogPOSIXError(
-                kHAPLogType_Error,
-                "System call 'fcntl' to set self pipe file descriptor 0 flags to 'non-blocking' failed.",
-                errno,
-                __func__,
-                HAP_FILE,
-                __LINE__);
-        HAPFatalError();
-    }
-    HAPAssert(selfPipefileDescriptors[1] != -1);
-    e = fcntl(selfPipefileDescriptors[1], F_SETFL, O_NONBLOCK);
-    if (e == -1) {
-        HAPPlatformLogPOSIXError(
-                kHAPLogType_Error,
-                "System call 'fcntl' to set self pipe file descriptor 1 flags to 'non-blocking' failed.",
-                errno,
-                __func__,
-                HAP_FILE,
-                __LINE__);
-        HAPFatalError();
-    }
-
-    runSecondLoop.selfPipeFileDescriptor0 = selfPipefileDescriptors[0];
-    runSecondLoop.selfPipeFileDescriptor1 = selfPipefileDescriptors[1];
-
-    err = HAPPlatformFileHandleRegister(
-            &runSecondLoop.selfPipeFileHandle,
-            runSecondLoop.selfPipeFileDescriptor0,
-            (HAPPlatformFileHandleEvent) {
-                    .isReadyForReading = true, .isReadyForWriting = false, .hasErrorConditionPending = false },
-            HandleSelfPipeFileHandleCallback,
-            NULL);
-    if (err) {
-        HAPAssert(err == kHAPError_OutOfResources);
-        HAPLogError(&logObject, "Failed to register self pipe file handle.");
-        HAPFatalError();
-    }
-    HAPAssert(runSecondLoop.selfPipeFileHandle);
 
     runSecondLoop.state = kHAPPlatformRunLoopState_Idle;
 
@@ -545,15 +305,6 @@ void HAPPlatformRunSecondLoopCreate(const HAPPlatformRunLoopOptions* options) {
 }
 
 void HAPPlatformRunSecondLoopRelease(void) {
-    ClosePipe(runSecondLoop.selfPipeFileDescriptor0, runSecondLoop.selfPipeFileDescriptor1);
-
-    runSecondLoop.selfPipeFileDescriptor0 = -1;
-    runSecondLoop.selfPipeFileDescriptor1 = -1;
-
-    if (runSecondLoop.selfPipeFileHandle) {
-        HAPPlatformFileHandleDeregister(runSecondLoop.selfPipeFileHandle);
-        runSecondLoop.selfPipeFileHandle = 0;
-    }
 
     runSecondLoop.state = kHAPPlatformRunLoopState_Idle;
 
@@ -566,7 +317,7 @@ void HAPPlatformRunSecondLoopRelease(void) {
 void HAPPlatformRunSecondLoopRun(void) {
     HAPPrecondition(runSecondLoop.state == kHAPPlatformRunLoopState_Idle);
 
-    HAPLogInfo(&logObject, "Entering run loop.");
+    HAPLogInfo(&logObject, "Entering run second loop.");
     runSecondLoop.state = kHAPPlatformRunLoopState_Running;
     do {
         fd_set readFileDescriptors;
@@ -632,6 +383,7 @@ void HAPPlatformRunSecondLoopRun(void) {
             timeout->tv_usec = (suseconds_t)((delta % 1000) * 1000);
         }
 
+
         HAPAssert(maxFileDescriptor >= -1);
         HAPAssert(maxFileDescriptor < FD_SETSIZE);
 
@@ -648,7 +400,6 @@ void HAPPlatformRunSecondLoopRun(void) {
             HAPFatalError();
         }
 
-        ProcessExpiredTimers();
 
         ProcessSelectedFileHandles(&readFileDescriptors, &writeFileDescriptors, &errorFileDescriptors);
     } while (runSecondLoop.state == kHAPPlatformRunLoopState_Running);
