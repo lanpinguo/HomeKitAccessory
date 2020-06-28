@@ -1076,8 +1076,8 @@ static void LoadAccessoryBaseInfo(void) {
     HAPLogInfo(&kHAPLog_Default, "baseInfo.hardwareVersion: %s", accessoryConfiguration.baseInfo.hardwareVersion);
 	for(uint32_t i = 0; i < numServiceType; i++){
 	    HAPLogInfo(&kHAPLog_Default, "baseInfo.servcie[%d]: %s, number: %d",
-			i, accessoryConfiguration.baseInfo.services[i].type,
-			accessoryConfiguration.baseInfo.services[i].number);
+					i, accessoryConfiguration.baseInfo.services[i].type,
+					accessoryConfiguration.baseInfo.services[i].number);
 		numServices += accessoryConfiguration.baseInfo.services[i].number; 
 	}
 
@@ -1101,7 +1101,8 @@ static void LoadAccessoryBaseInfo(void) {
 
 
     // Prepare HAPService.
-    HAPService** services = calloc(numServices + 4, sizeof(HAPService*));
+    numServices += 4;
+    HAPService** services = calloc(numServices, sizeof(HAPService*));
     if (!services) {
         HAPLog(&kHAPLog_Default, "Cannot allocate more services.");
 		goto DONE;
@@ -1117,6 +1118,9 @@ static void LoadAccessoryBaseInfo(void) {
 	for(i = 0,j = 3 ; (i < numServiceType) && (j < numServices); i++){
 		AccessorySerivce * service;
 		service = &accessoryConfiguration.baseInfo.services[i];
+
+	    HAPLogDebug(&kHAPLog_Default, "add new service type: %s", service->type);
+
 		if(HAPRawBufferAreEqual(service->type, "switch", 6)){
 
 			for(k = 0; k < service->number; k++,j++ ){
@@ -1128,6 +1132,7 @@ static void LoadAccessoryBaseInfo(void) {
 			        HAPFatalError();
 					goto DONE;
 			    }
+			    HAPLogDebug(&kHAPLog_Default, "add new switch service: %lu", iid);
 			}
 		}
 		else if(HAPRawBufferAreEqual(service->type, "humidity", 8)){
@@ -1141,6 +1146,7 @@ static void LoadAccessoryBaseInfo(void) {
 			        HAPFatalError();
 					goto DONE;
 			    }
+			    HAPLogDebug(&kHAPLog_Default, "add new humidity service: %lu", iid);
 			}
 		}
 		else if(HAPRawBufferAreEqual(service->type, "temperature", 11)){
@@ -1154,6 +1160,7 @@ static void LoadAccessoryBaseInfo(void) {
 			        HAPFatalError();
 					goto DONE;
 			    }
+			    HAPLogDebug(&kHAPLog_Default, "add new temperature service: %lu", iid);
 			}
 		}
 
