@@ -66,6 +66,9 @@
 #define kAppKeyValueStoreKey_Configuration_Base ((HAPPlatformKeyValueStoreKey) 0x01)
 
 
+#define MAX_SERVICES	8
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 typedef struct {
     /**
@@ -159,7 +162,7 @@ struct HAPAccessoryBase {
      */
     char hardwareVersion[65];
 
-	AccessorySerivce services[8];
+	AccessorySerivce services[MAX_SERVICES];
 
 };
 
@@ -186,6 +189,12 @@ void CoapAgentHandleCallback(
         HAPPlatformFileHandleRef fileHandle,
         HAPPlatformFileHandleEvent fileHandleEvents,
         void* _Nullable context);
+HAP_RESULT_USE_CHECK
+HAPError HandleTemperatureRead(
+        HAPAccessoryServerRef* server HAP_UNUSED,
+        const HAPFloatCharacteristicReadRequest* request HAP_UNUSED,
+        float* value,
+        void* _Nullable context HAP_UNUSED);
 
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -758,12 +767,12 @@ HAPError SwitchServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* inp
 
 
 
-HAPError SensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* input, HAPService** out)
+HAPError TemperatureSensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* input, HAPService** out)
 {
 	HAPService * service = calloc(1, sizeof(HAPService));
 	HAPDataCharacteristic* signature = calloc(1, sizeof(HAPDataCharacteristic));
 	HAPStringCharacteristic* name = calloc(1, sizeof(HAPStringCharacteristic)); 
-	HAPBoolCharacteristic *switch_on = calloc(1, sizeof(HAPBoolCharacteristic));
+	HAPFloatCharacteristic *current_temperature = calloc(1, sizeof(HAPFloatCharacteristic));
 
 	HAPAssert(iid);
 	HAPAssert(input);
@@ -772,7 +781,7 @@ HAPError SensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* inp
 	HAPAssert(service);
 	HAPAssert(signature);
 	HAPAssert(name);
-	HAPAssert(switch_on);
+	HAPAssert(current_temperature);
 
 	
 	/**
@@ -823,42 +832,48 @@ HAPError SensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* inp
 	name->callbacks.handleWrite = NULL ;
 
 	/**
-	 * The 'On' characteristic of the switch service.
+	 * The current temperature characteristic of the sensor service.
 	 */
-	switch_on->format = kHAPCharacteristicFormat_Bool;
-	switch_on->iid = *iid + 3;
-	switch_on->characteristicType = &kHAPCharacteristicType_On;
-	switch_on->debugDescription = kHAPCharacteristicDebugDescription_On;
-	switch_on->manufacturerDescription = NULL;
-	switch_on->properties.readable = true;
-	switch_on->properties.writable = true;
-	switch_on->properties.supportsEventNotification = true;
-	switch_on->properties.hidden = false;
-	switch_on->properties.requiresTimedWrite = false;
-	switch_on->properties.supportsAuthorizationData = false;
-	switch_on->properties.ip.controlPoint = false; 
-	switch_on->properties.ip.supportsWriteResponse = false;
-	switch_on->properties.ble.supportsBroadcastNotification = true;
-	switch_on->properties.ble.supportsDisconnectedNotification = true;
-	switch_on->properties.ble.readableWithoutSecurity = false;
-	switch_on->properties.ble.writableWithoutSecurity = false ;
-	switch_on->callbacks.handleRead = HandleLightBulbOnRead;
-	switch_on->callbacks.handleWrite = HandleLightBulbOnWrite ;
+	current_temperature->format = kHAPCharacteristicFormat_Float;
+	current_temperature->iid = *iid + 3;
+	current_temperature->characteristicType = &kHAPCharacteristicType_CurrentTemperature;
+	current_temperature->debugDescription = kHAPCharacteristicDebugDescription_CurrentTemperature;
+	current_temperature->manufacturerDescription = NULL;
+	current_temperature->properties.readable = true;
+	current_temperature->properties.writable = false;
+	current_temperature->properties.supportsEventNotification = true;
+	current_temperature->properties.hidden = false;
+	current_temperature->properties.requiresTimedWrite = false;
+	current_temperature->properties.supportsAuthorizationData = false;
+	current_temperature->properties.ip.controlPoint = false; 
+	current_temperature->properties.ip.supportsWriteResponse = false;
+	current_temperature->properties.ble.supportsBroadcastNotification = true;
+	current_temperature->properties.ble.supportsDisconnectedNotification = true;
+	current_temperature->properties.ble.readableWithoutSecurity = false;
+	current_temperature->properties.ble.writableWithoutSecurity = false ;
+	
+    current_temperature->units = kHAPCharacteristicUnits_Celsius,
+    current_temperature->constraints.minimumValue 	= 0.1;
+	current_temperature->constraints.maximumValue 	= 100;
+	current_temperature->constraints.stepValue 	= 0.1;
+
+	current_temperature->callbacks.handleRead = HandleTemperatureRead;
+	current_temperature->callbacks.handleWrite = NULL ;
 
 	/**
-	 * The switch service that contains the 'On' characteristic.
+	 * The switch service that contains the 'current_temperature' characteristic.
 	 */
 	HAPCharacteristic **characteristics = calloc(4, sizeof(HAPCharacteristic *));
 	characteristics[0] = signature;
     characteristics[1] = name;
-    characteristics[2] = switch_on;
+    characteristics[2] = current_temperature;
     characteristics[3] = NULL;
 
 	char *service_name = calloc(1, 32);
-	snprintf(service_name,32,"switch-%ld",localId);
+	snprintf(service_name,32,"temperature-%ld",localId);
 	service->iid = *iid ;
-	service->serviceType = &kHAPServiceType_Switch;
-	service->debugDescription = kHAPServiceDebugDescription_Switch;
+	service->serviceType = &kHAPServiceType_TemperatureSensor;
+	service->debugDescription = kHAPServiceDebugDescription_TemperatureSensor;
 	service->name = service_name;
 	service->properties.primaryService = true;
 	service->properties.hidden = false; 
@@ -872,6 +887,132 @@ HAPError SensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* inp
 	return kHAPError_None;
 }
 
+
+
+
+
+
+HAPError HumiditySensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* input, HAPService** out)
+{
+	HAPService * service = calloc(1, sizeof(HAPService));
+	HAPDataCharacteristic* signature = calloc(1, sizeof(HAPDataCharacteristic));
+	HAPStringCharacteristic* name = calloc(1, sizeof(HAPStringCharacteristic)); 
+	HAPFloatCharacteristic *current_humidity = calloc(1, sizeof(HAPFloatCharacteristic));
+
+	HAPAssert(iid);
+	HAPAssert(input);
+	HAPAssert(out);
+
+	HAPAssert(service);
+	HAPAssert(signature);
+	HAPAssert(name);
+	HAPAssert(current_humidity);
+
+	
+	/**
+	 * The 'Service Signature' characteristic of the switch service.
+	 */
+	signature->format = kHAPCharacteristicFormat_Data;
+	signature->iid = *iid + 1;
+	signature->characteristicType = &kHAPCharacteristicType_ServiceSignature,
+	signature->debugDescription = kHAPCharacteristicDebugDescription_ServiceSignature;
+	signature->manufacturerDescription = NULL;
+	signature->properties.readable = true;
+    signature->properties.writable = false;
+    signature->properties.supportsEventNotification = false;
+    signature->properties.hidden = false;
+    signature->properties.requiresTimedWrite = false;
+    signature->properties.supportsAuthorizationData = false;
+    signature->properties.ip.controlPoint = true;
+    signature->properties.ble.supportsBroadcastNotification = false;
+    signature->properties.ble.supportsDisconnectedNotification = false;
+    signature->properties.ble.readableWithoutSecurity = false;
+    signature->properties.ble.writableWithoutSecurity = false;
+	signature->constraints.maxLength = 2097152 ;
+	signature->callbacks.handleRead = HAPHandleServiceSignatureRead;
+	signature->callbacks.handleWrite = NULL ;
+
+	/**
+	 * The 'Name' characteristic of the switch service.
+	 */
+	name->format = kHAPCharacteristicFormat_String;
+	name->iid =  *iid + 2;
+	name->characteristicType = &kHAPCharacteristicType_Name;
+	name->debugDescription = kHAPCharacteristicDebugDescription_Name;
+	name->manufacturerDescription = NULL;
+	name->properties.readable = true;
+	name->properties.writable = false;
+	name->properties.supportsEventNotification = false;
+	name->properties.hidden = false;
+	name->properties.requiresTimedWrite = false;
+	name->properties.supportsAuthorizationData = false;
+	name->properties.ip.controlPoint = false;
+	name->properties.ip.supportsWriteResponse = false ;
+	name->properties.ble.supportsBroadcastNotification = false;
+	name->properties.ble.supportsDisconnectedNotification = false;
+	name->properties.ble.readableWithoutSecurity = false;
+	name->properties.ble.writableWithoutSecurity = false ;
+	name->constraints.maxLength = 64;
+	name->callbacks.handleRead = HAPHandleNameRead;
+	name->callbacks.handleWrite = NULL ;
+
+	/**
+	 * The current temperature characteristic of the sensor service.
+	 */
+	current_humidity->format = kHAPCharacteristicFormat_Float;
+	current_humidity->iid = *iid + 3;
+	current_humidity->characteristicType = &kHAPCharacteristicType_CurrentRelativeHumidity;
+	current_humidity->debugDescription = kHAPCharacteristicDebugDescription_CurrentRelativeHumidity;
+	current_humidity->manufacturerDescription = NULL;
+	current_humidity->properties.readable = true;
+	current_humidity->properties.writable = false;
+	current_humidity->properties.supportsEventNotification = true;
+	current_humidity->properties.hidden = false;
+	current_humidity->properties.requiresTimedWrite = false;
+	current_humidity->properties.supportsAuthorizationData = false;
+	current_humidity->properties.ip.controlPoint = false; 
+	current_humidity->properties.ip.supportsWriteResponse = false;
+	current_humidity->properties.ble.supportsBroadcastNotification = true;
+	current_humidity->properties.ble.supportsDisconnectedNotification = true;
+	current_humidity->properties.ble.readableWithoutSecurity = false;
+	current_humidity->properties.ble.writableWithoutSecurity = false ;
+	
+    current_humidity->units = kHAPCharacteristicUnits_Percentage,
+    current_humidity->constraints.minimumValue 	= 0.1;
+	current_humidity->constraints.maximumValue 	= 100;
+	current_humidity->constraints.stepValue 	= 0.1;
+
+	current_humidity->callbacks.handleRead = HandleTemperatureRead;
+	current_humidity->callbacks.handleWrite = NULL ;
+
+	/**
+	 * The switch service that contains the 'current_humidity' characteristic.
+	 */
+	HAPCharacteristic **characteristics = calloc(4, sizeof(HAPCharacteristic *));
+	characteristics[0] = signature;
+    characteristics[1] = name;
+    characteristics[2] = current_humidity;
+    characteristics[3] = NULL;
+
+	char *service_name = calloc(1, 32);
+	snprintf(service_name,32,"humidity-%ld",localId);
+	service->iid = *iid ;
+	service->serviceType = &kHAPServiceType_HumiditySensor;
+	service->debugDescription = kHAPServiceDebugDescription_HumiditySensor;
+	service->name = service_name;
+	service->properties.primaryService = true;
+	service->properties.hidden = false; 
+	service->properties.ble.supportsConfiguration = false;
+	service->linkedServices = NULL;
+	service->characteristics = (const HAPCharacteristic*  const* )characteristics; 
+
+	*iid += 4;
+	*out = service;
+	
+	return kHAPError_None;
+}
+
+
 /**
  * Load the accessory base info from persistent memory.
  */
@@ -883,6 +1024,7 @@ static void LoadAccessoryBaseInfo(void) {
     // Load persistent state if available
     bool found;
     size_t numBytes;
+    size_t numServiceType = 0;
     size_t numServices = 0;
 	uint64_t iid;
 
@@ -921,8 +1063,8 @@ static void LoadAccessoryBaseInfo(void) {
 		(char*)baseInfo,
 		strlen((char*)baseInfo),
 		&accessoryConfiguration.baseInfo,
-		8,
-		&numServices);
+		MAX_SERVICES,
+		&numServiceType);
 	
     HAPLogInfo(&kHAPLog_Default, "baseInfo.aid: %ld", accessoryConfiguration.baseInfo.aid);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.category: %d", accessoryConfiguration.baseInfo.category);
@@ -932,11 +1074,16 @@ static void LoadAccessoryBaseInfo(void) {
     HAPLogInfo(&kHAPLog_Default, "baseInfo.serialNumber: %s", accessoryConfiguration.baseInfo.serialNumber);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.firmwareVersion: %s", accessoryConfiguration.baseInfo.firmwareVersion);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.hardwareVersion: %s", accessoryConfiguration.baseInfo.hardwareVersion);
-	for(uint32_t i = 0; i < numServices; i++){
+	for(uint32_t i = 0; i < numServiceType; i++){
 	    HAPLogInfo(&kHAPLog_Default, "baseInfo.servcie[%d]: %s, number: %d",
 			i, accessoryConfiguration.baseInfo.services[i].type,
 			accessoryConfiguration.baseInfo.services[i].number);
+		numServices += accessoryConfiguration.baseInfo.services[i].number; 
 	}
+
+    HAPAssert(numServices <= MAX_SERVICES);
+
+	
     if (err) {
         HAPAssert(err == kHAPError_Unknown);
         HAPFatalError();
@@ -965,16 +1112,49 @@ static void LoadAccessoryBaseInfo(void) {
 	services[2] = (HAPService*)&pairingService;
 
 
+	uint32_t i , j, k ;
 	iid = 0x30;
-	for(uint32_t i = 0 ; i < numServices; i++){
-		if(HAPRawBufferAreEqual(accessoryConfiguration.baseInfo.services[i].type, "switch", 6)){
-			err = SwitchServiceAdd(	&iid, i + 1, &accessoryConfiguration.baseInfo.services[i],
-									(HAPService**)&services[i + 3]);
-		    if (err) {
-		        HAPAssert(err == kHAPError_Unknown);
-		        HAPFatalError();
-				goto DONE;
-		    }
+	for(i = 0,j = 3 ; (i < numServiceType) && (j < numServices); i++){
+		AccessorySerivce * service;
+		service = &accessoryConfiguration.baseInfo.services[i];
+		if(HAPRawBufferAreEqual(service->type, "switch", 6)){
+
+			for(k = 0; k < service->number; k++,j++ ){
+
+				err = SwitchServiceAdd(	&iid, k + 1, service,
+										(HAPService**)&services[j]);
+			    if (err) {
+			        HAPAssert(err == kHAPError_Unknown);
+			        HAPFatalError();
+					goto DONE;
+			    }
+			}
+		}
+		else if(HAPRawBufferAreEqual(service->type, "humidity", 8)){
+
+			for(k = 0; k < service->number; k++,j++ ){
+
+				err = HumiditySensorServiceAdd(	&iid, k + 1, service,
+										(HAPService**)&services[j]);
+			    if (err) {
+			        HAPAssert(err == kHAPError_Unknown);
+			        HAPFatalError();
+					goto DONE;
+			    }
+			}
+		}
+		else if(HAPRawBufferAreEqual(service->type, "temperature", 11)){
+
+			for(k = 0; k < service->number; k++,j++ ){
+
+				err = TemperatureSensorServiceAdd(	&iid, k + 1, service,
+										(HAPService**)&services[j]);
+			    if (err) {
+			        HAPAssert(err == kHAPError_Unknown);
+			        HAPFatalError();
+					goto DONE;
+			    }
+			}
 		}
 
 	}
@@ -1192,6 +1372,24 @@ HAPError HandleLightBulbOnWrite(
 
     return kHAPError_None;
 }
+
+HAP_RESULT_USE_CHECK
+HAPError HandleTemperatureRead(
+        HAPAccessoryServerRef* server HAP_UNUSED,
+        const HAPFloatCharacteristicReadRequest* request HAP_UNUSED,
+        float* value,
+        void* _Nullable context HAP_UNUSED) {
+	uint32_t a;
+	float temp;
+	
+	HAPPlatformRandomNumberFill(&a,sizeof(a));	
+	temp = (a % 100) / 10.0;
+    *value = 25 + temp;
+    HAPLogInfo(&kHAPLog_Default, "%g", *value);
+
+    return kHAPError_None;
+}
+
 
 //----------------------------------------------------------------------------------------------------------------------
 
