@@ -1,14 +1,16 @@
 #ifndef _IPC_HELPER_H
 #define _IPC_HELPER_H
 
-
+#include "HAPPlatformSync.h"
 
 /**
  * Unix Domain session descriptor.
  */
 typedef struct {
 
+	sal_mutex_t _Nullable mutex_recive;
 
+	uint64_t 	 waited_xid;
 
     /** IP session state. */
     HAPIPSessionState state;
@@ -181,6 +183,12 @@ int  CoapAgentCreate(const char* _Nonnull pathname,int * _Nullable sockId);
 
 uint32_t CoapAgentRecv(COAP_Session* _Nonnull coap_session );
 HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session, uint64_t * _Nullable  xid);
+
+
+HAPError WriteMessageToCoapAgent(			COAP_Session* _Nonnull coap_session,
+												uint64_t* _Nullable xid);
+HAPError WaitResponseFromCoapAgent( 			COAP_Session* _Nonnull coap_session,
+										        uint64_t xid, uint64_t timeout);
 
 
 #endif /* _IPC_HELPER_H */

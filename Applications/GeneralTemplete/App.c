@@ -39,6 +39,7 @@
 #include "HAPPlatform.h"
 #include "HAPPlatformFileHandle.h"
 #include "HAPPlatformThread.h"
+#include "HAPPlatformSync.h"
 
 #include "HAP+Internal.h"
 #include "HAPPlatformRunSecondLoop.h"
@@ -1244,43 +1245,6 @@ static void SaveAccessoryState(void) {
     }
 }
 
-
-HAPError WriteMessageToCoapAgent(	
-			COAP_Session* coap_session,
-	        uint64_t* xid){
-
-	HAPError err;
-	HAPPrecondition(coap_session);
-
-
-
-
-	coap_session->session.outboundBuffer.limit = coap_session->session.outboundBuffer.position;
-
-
-	err = CoapAgentSend(coap_session,xid);
-
-
-    return err;
-
-}
-
-
-HAPError WaitResponseFromCoapAgent( 			COAP_Session* coap_session,
-										        uint64_t xid, uint64_t timeout){
-
-	HAPError err;
-	HAPPrecondition(coap_session);
-
-
-
-	err = CoapAgentRecv(coap_session);
-
-
-    return err;
-
-}
-
 //----------------------------------------------------------------------------------------------------------------------
 
 HAP_RESULT_USE_CHECK
@@ -1399,6 +1363,7 @@ HAPError HandleTemperatureRead(
         float* value,
         void* _Nullable context HAP_UNUSED) {
 	HAPError err;
+	uint64_t xid;
 	uint32_t a;
 	HAPTime now;
 	static 	HAPTime last_time = 0;
@@ -1417,8 +1382,10 @@ HAPError HandleTemperatureRead(
 	            accessoryConfiguration.baseInfo.name);
 	    HAPAssert(!err);
 
-		err = WriteMessageToCoapAgent(&coap_session,0);
+		err = WriteMessageToCoapAgent(&coap_session,&xid);
 	    HAPAssert(!err);
+
+		err = WaitResponseFromCoapAgent(&coap_session,xid,2000);
 
 		last_time = HAPPlatformClockGetCurrent();
 
@@ -1621,7 +1588,9 @@ void AccessoryCoapAgentCreate(void)
     coap_session.session.eventNotificationStamp = 0;
     coap_session.session.timedWriteExpirationTime = 0;
     coap_session.session.timedWritePID = 0;
-
+    coap_session.session.mutex_recive = 0;
+	coap_session.session.waited_xid = 0;
+	
     err = HAPPlatformSecondFileHandleRegister(
             &coap_session.fileHandle,
             coap_session.sockFd,

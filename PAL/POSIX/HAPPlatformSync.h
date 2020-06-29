@@ -39,6 +39,12 @@ typedef struct sal_spinlock_s {
 extern sal_mutex_t sal_mutex_create(char *desc);
 extern void sal_mutex_destroy(sal_mutex_t m);
 
+int sal_mutex_take(sal_mutex_t m, int usec);
+int sal_mutex_give(sal_mutex_t m);
+sal_sem_t _Nullable sal_sem_create(char *desc, int initial_count);
+void sal_sem_destroy(sal_sem_t b);
+int sal_sem_take(sal_sem_t b, int usec);
+int sal_sem_give(sal_sem_t b);
 
 
 

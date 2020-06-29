@@ -303,11 +303,7 @@ sal_mutex_sem_take(pthread_mutex_t *mutex, pthread_cond_t *cond,
 }
 
 int
-#ifdef BROADCOM_DEBUG_MUTEX
-sal_mutex_take_intern(sal_mutex_t m, int usec)
-#else
 sal_mutex_take(sal_mutex_t m, int usec)
-#endif
 {
     recursive_mutex_t *rm = (recursive_mutex_t *)m;
     sal_thread_t      myself = sal_thread_self();
@@ -347,11 +343,7 @@ sal_mutex_take(sal_mutex_t m, int usec)
 
 
 int
-#ifdef BROADCOM_DEBUG_MUTEX
-sal_mutex_give_intern(sal_mutex_t m)
-#else
 sal_mutex_give(sal_mutex_t m)
-#endif
 {
     recursive_mutex_t  *rm = (recursive_mutex_t *) m;
     int                err = 0;
@@ -380,5 +372,87 @@ sal_mutex_give(sal_mutex_t m)
     return err ? -1 : 0;
 }
 
+
+/*
+ * Wrapper class to hold additional info
+ * along with the semaphore.
+ */
+typedef struct {
+    int             val;
+    pthread_mutex_t mutex;
+    pthread_cond_t  cond;
+    char            *desc;
+} wrapped_sem_t;
+
+sal_sem_t _Nullable
+sal_sem_create(char *desc, int initial_count)
+{
+    wrapped_sem_t       *s = NULL;
+    struct timespec     ts;
+    pthread_condattr_t  cond_attr;
+    pthread_mutexattr_t mutex_attr;
+
+    /* Ignore binary for now */
+
+    if ((s = malloc(sizeof (wrapped_sem_t))) == NULL) {
+        return NULL;
+    }
+
+    s->val = initial_count;
+    s->desc = desc;
+    pthread_mutexattr_init(&mutex_attr);
+    pthread_mutex_init(&s->mutex, &mutex_attr);
+
+    pthread_condattr_init(&cond_attr);
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        pthread_condattr_setclock(&cond_attr, CLOCK_MONOTONIC);
+    }
+    pthread_cond_init(&s->cond, &cond_attr);
+
+    SAL_SEM_RESOURCE_USAGE_INCR(_sal_sem_count_curr, _sal_sem_count_max);
+
+    return (sal_sem_t) s;
+}
+
+void
+sal_sem_destroy(sal_sem_t b)
+{
+    wrapped_sem_t *s = (wrapped_sem_t *) b;
+
+    HAPAssert(s);
+
+    pthread_mutex_destroy(&s->mutex);
+    pthread_cond_destroy(&s->cond);
+
+    free(s);
+
+    SAL_SEM_RESOURCE_USAGE_DECR(_sal_sem_count_curr);
+}
+
+int
+sal_sem_take(sal_sem_t b, int usec)
+{
+    wrapped_sem_t    *s = (wrapped_sem_t *) b;
+    int              err = 0;
+
+    err = sal_mutex_sem_take(&s->mutex, &s->cond, &s->val, 
+                             usec == sal_sem_FOREVER, usec);
+
+    return err ? -1 : 0;
+}
+
+int
+sal_sem_give(sal_sem_t b)
+{
+    wrapped_sem_t *s = (wrapped_sem_t *) b;
+    int           err;
+
+    pthread_mutex_lock(&s->mutex);
+    s->val++;
+    err = pthread_cond_broadcast(&s->cond);
+    pthread_mutex_unlock(&s->mutex);
+
+    return err ? -1 : 0;
+}
 
 

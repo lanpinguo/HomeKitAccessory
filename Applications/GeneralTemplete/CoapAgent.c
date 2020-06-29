@@ -418,6 +418,43 @@ uint32_t CoapAgentRecv(COAP_Session* coap_session )
 
 
 
+HAPError WriteMessageToCoapAgent(	
+			COAP_Session* coap_session,
+	        uint64_t* xid){
+
+	HAPError err;
+	HAPPrecondition(coap_session);
+
+
+
+
+	coap_session->session.outboundBuffer.limit = coap_session->session.outboundBuffer.position;
+
+
+	err = CoapAgentSend(coap_session,xid);
+
+
+    return err;
+
+}
+
+
+HAPError WaitResponseFromCoapAgent( 			COAP_Session* coap_session,
+										        uint64_t xid, uint64_t timeout){
+
+	HAPError err;
+	HAPPrecondition(coap_session);
+
+
+
+	err = CoapAgentRecv(coap_session);
+
+
+    return err;
+
+}
+
+
 
 int CoapMsgRecvWithTimeout(int fd, uint8_t *buf, 
 	uint32_t bufLen, uint32_t *recvLen,struct timeval *timeout)
