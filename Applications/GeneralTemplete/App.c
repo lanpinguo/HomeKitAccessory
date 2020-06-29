@@ -1388,6 +1388,7 @@ HAPError HandleTemperatureRead(
 		err = WaitResponseFromCoapAgent(&coap_session,xid,2000);
 
 		if(err == kHAPError_None){
+			HAPLogInfo(&kHAPLog_Default, "Get response from coap-agent");
 			HAPIPByteBufferClear(&coap_session.session.inboundBuffer);
 		}
 		else{
@@ -1415,6 +1416,7 @@ HAPError HandleHumidityRead(
         float* value,
         void* _Nullable context HAP_UNUSED) {
 	HAPError err;
+	uint64_t xid;
 	uint32_t a;
 	HAPTime now;
 	static 	HAPTime last_time = 0;
@@ -1433,8 +1435,20 @@ HAPError HandleHumidityRead(
 	            accessoryConfiguration.baseInfo.name);
 	    HAPAssert(!err);
 
-		err = WriteMessageToCoapAgent(&coap_session,0);
+		err = WriteMessageToCoapAgent(&coap_session,&xid);
 	    HAPAssert(!err);
+
+		err = WaitResponseFromCoapAgent(&coap_session,xid,2000);
+
+		if(err == kHAPError_None){
+			HAPLogInfo(&kHAPLog_Default, "Get response from coap-agent");
+			HAPIPByteBufferClear(&coap_session.session.inboundBuffer);
+		}
+		else{
+			HAPLogInfo(&kHAPLog_Default, "Wait response timeout");
+		}
+
+
 
 		last_time = HAPPlatformClockGetCurrent();
 
