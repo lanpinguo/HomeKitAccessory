@@ -8,9 +8,9 @@
  */
 typedef struct {
 
-	sal_mutex_t _Nullable mutex_recive;
+	sal_sem_t _Nullable semResponse;
 
-	uint64_t 	 waited_xid;
+	uint64_t 	 waitedTransactionId;
 
     /** IP session state. */
     HAPIPSessionState state;

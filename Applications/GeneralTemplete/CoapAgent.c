@@ -355,8 +355,14 @@ HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session, uint64_t * _Nullable
 
 	xid_counter++;
 	if(xid){
+		if(coap_session->session.semResponse  != NULL){
+			sal_sem_destroy(coap_session->session.semResponse);
+		}
+		coap_session->session.semResponse = sal_sem_create("coapAgent",0);
+		HAPAssert(coap_session->session.semResponse);
 		*xid = xid_counter;
 	}
+	
 	HAPLogBufferDebug(&logObject,
 		coap_session->session.outboundBuffer.data,
 		coap_session->session.outboundBuffer.limit,"%s",__func__);
@@ -409,8 +415,11 @@ uint32_t CoapAgentRecv(COAP_Session* coap_session )
 		coap_session->session.inboundBuffer.limit,"%s",__func__);
 
 	read_http(&coap_session->session);
+
+	if(coap_session->session.semResponse  != NULL){
+		sal_sem_give(coap_session->session.semResponse);
+	}
 	
-	HAPIPByteBufferClear(&coap_session->session.inboundBuffer);
 
 	return recvBytes;
 }
@@ -442,14 +451,18 @@ HAPError WriteMessageToCoapAgent(
 HAPError WaitResponseFromCoapAgent( 			COAP_Session* coap_session,
 										        uint64_t xid, uint64_t timeout){
 
-	HAPError err;
+	HAPError err = kHAPError_None;
+	int rc;
 	HAPPrecondition(coap_session);
 
 
+	coap_session->session.waitedTransactionId = xid;
 
-	err = CoapAgentRecv(coap_session);
+	rc = sal_sem_take(coap_session->session.semResponse,timeout * 1000);
 
-
+	if(rc != 0){
+		err = kHAPError_Busy ;
+	}
     return err;
 
 }

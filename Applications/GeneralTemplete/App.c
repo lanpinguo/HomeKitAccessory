@@ -1387,6 +1387,14 @@ HAPError HandleTemperatureRead(
 
 		err = WaitResponseFromCoapAgent(&coap_session,xid,2000);
 
+		if(err == kHAPError_None){
+			HAPIPByteBufferClear(&coap_session.session.inboundBuffer);
+		}
+		else{
+			HAPLogInfo(&kHAPLog_Default, "Wait response timeout");
+		}
+
+
 		last_time = HAPPlatformClockGetCurrent();
 
 	}
@@ -1588,8 +1596,8 @@ void AccessoryCoapAgentCreate(void)
     coap_session.session.eventNotificationStamp = 0;
     coap_session.session.timedWriteExpirationTime = 0;
     coap_session.session.timedWritePID = 0;
-    coap_session.session.mutex_recive = 0;
-	coap_session.session.waited_xid = 0;
+    coap_session.session.semResponse = 0;
+	coap_session.session.waitedTransactionId = 0;
 	
     err = HAPPlatformSecondFileHandleRegister(
             &coap_session.fileHandle,
