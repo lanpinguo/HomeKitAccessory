@@ -343,8 +343,9 @@ int CoapAgentMsgSend(int srcSockFd, struct sockaddr *dest, uint32_t addrlen,uint
 	return RC_E_NONE;
 }
 
+static uint64_t  xid_counter = 0;
 
-HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session)
+HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session, uint64_t * _Nullable  xid)
 {
     HAPPrecondition(coap_session);
 
@@ -352,8 +353,10 @@ HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session)
 	uint32_t addrlen;
 
 
-	
-
+	xid_counter++;
+	if(xid){
+		*xid = xid_counter;
+	}
 	HAPLogBufferDebug(&logObject,
 		coap_session->session.outboundBuffer.data,
 		coap_session->session.outboundBuffer.limit,"%s",__func__);

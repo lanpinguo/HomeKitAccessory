@@ -180,7 +180,7 @@ typedef struct
 int  CoapAgentCreate(const char* _Nonnull pathname,int * _Nullable sockId);
 
 uint32_t CoapAgentRecv(COAP_Session* _Nonnull coap_session );
-HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session);
+HAPError CoapAgentSend(COAP_Session* _Nonnull coap_session, uint64_t * _Nullable  xid);
 
 
 #endif /* _IPC_HELPER_H */

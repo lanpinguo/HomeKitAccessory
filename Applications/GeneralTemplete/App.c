@@ -1247,7 +1247,7 @@ static void SaveAccessoryState(void) {
 
 HAPError WriteMessageToCoapAgent(	
 			COAP_Session* coap_session,
-	        uint64_t timeout){
+	        uint64_t* xid){
 
 	HAPError err;
 	HAPPrecondition(coap_session);
@@ -1258,24 +1258,26 @@ HAPError WriteMessageToCoapAgent(
 	coap_session->session.outboundBuffer.limit = coap_session->session.outboundBuffer.position;
 
 
-	err = CoapAgentSend(coap_session);
+	err = CoapAgentSend(coap_session,xid);
 
-	if(err != kHAPError_None){
 
-		coap_session->session.state = kHAPIPSessionState_Writing;
-		HAPPlatformSecondFileHandleUpdateInterests(
-		    coap_session->fileHandle,
-		    (HAPPlatformFileHandleEvent) {
-		            .isReadyForReading = true,
-					.isReadyForWriting = true, 
-					.hasErrorConditionPending = false
-					},
-		    CoapAgentHandleCallback,
-		    coap_session);
+    return err;
 
-	}
+}
 
-    return kHAPError_None;
+
+HAPError WaitResponseFromCoapAgent( 			COAP_Session* coap_session,
+										        uint64_t xid, uint64_t timeout){
+
+	HAPError err;
+	HAPPrecondition(coap_session);
+
+
+
+	err = CoapAgentRecv(coap_session);
+
+
+    return err;
 
 }
 
@@ -1551,26 +1553,6 @@ void CoapAgentHandleCallback(
 	if(fileHandleEvents.isReadyForReading){
 		CoapAgentRecv(coap_session);
 	}
-
-
-	if(fileHandleEvents.isReadyForWriting && 
-		(coap_session->session.state == kHAPIPSessionState_Writing)){
-		
-		CoapAgentSend(coap_session);
-		
-		coap_session->session.state = kHAPIPSessionState_Idle;
-	    HAPPlatformFileHandleUpdateInterests(
-            coap_session->fileHandle,
-            (HAPPlatformFileHandleEvent) {
-                    .isReadyForReading = true,
-					.isReadyForWriting = false, 
-					.hasErrorConditionPending = false
-					},
-            CoapAgentHandleCallback,
-            coap_session);
-
-	}
-
 
 }
 
