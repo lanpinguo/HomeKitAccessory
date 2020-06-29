@@ -21,6 +21,8 @@ typedef struct sal_thread_s{
     char thread_opaque_type;
 } *sal_thread_t;
 
+sal_thread_t
+sal_thread_self(void);
 
 /*
  * Function:

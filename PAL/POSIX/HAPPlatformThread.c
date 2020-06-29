@@ -70,6 +70,22 @@ static const HAPLogObject logObject = { .subsystem = kHAPPlatform_LogSubsystem, 
 
 
 
+ /* Function:
+ *	sal_thread_self
+ * Purpose:
+ *	Return thread ID of caller
+ * Parameters:
+ *	None
+ * Returns:
+ *	Thread ID
+ */
+
+sal_thread_t
+sal_thread_self(void)
+{
+    return (sal_thread_t) pthread_self();
+}
+
 
 /*
  * Function:
