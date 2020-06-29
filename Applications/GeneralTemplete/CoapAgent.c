@@ -117,9 +117,71 @@ static void read_http_content_length(COAPUnixDomainSessionDescriptor * session) 
     }
 }
 
+
 static void read_http_content_type(COAPUnixDomainSessionDescriptor* session) {
+    HAPPrecondition(session);
 
+    HAPAssert(session->inboundBuffer.data);
+    HAPAssert(session->inboundBuffer.position <= session->inboundBuffer.limit);
+    HAPAssert(session->inboundBuffer.limit <= session->inboundBuffer.capacity);
+    HAPAssert(session->httpReaderPosition <= session->inboundBuffer.position);
+    HAPAssert(session->httpReader.state == util_HTTP_READER_STATE_COMPLETED_HEADER_VALUE);
+    HAPAssert(!session->httpParserError);
 
+    size_t i = 0;
+    while ((i < session->httpHeaderFieldValue.numBytes) &&
+           ((session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_Space) ||
+            (session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_HorizontalTab))) {
+        // Skip whitespace.
+        i++;
+    }
+    HAPAssert(
+            (i == session->httpHeaderFieldValue.numBytes) ||
+            ((i < session->httpHeaderFieldValue.numBytes) &&
+             (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_Space) &&
+             (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_HorizontalTab)));
+    if ((i < session->httpHeaderFieldValue.numBytes)) {
+        session->httpContentType = kHAPIPAccessoryServerContentType_Unknown;
+
+#define TryAssignContentType(contentType, contentTypeString) \
+    do { \
+        size_t numContentTypeStringBytes = sizeof(contentTypeString) - 1; \
+        if (session->httpHeaderFieldValue.numBytes - i >= numContentTypeStringBytes && \
+            HAPRawBufferAreEqual( \
+                    &session->httpHeaderFieldValue.bytes[i], (contentTypeString), numContentTypeStringBytes)) { \
+            session->httpContentType = (contentType); \
+            i += numContentTypeStringBytes; \
+        } \
+    } while (0)
+
+        // Check longer header values first if multiple have the same prefix.
+        TryAssignContentType(kHAPIPAccessoryServerContentType_Application_HAPJSON, "application/hap+json");
+        TryAssignContentType(kHAPIPAccessoryServerContentType_Application_OctetStream, "application/octet-stream");
+        TryAssignContentType(kHAPIPAccessoryServerContentType_Application_PairingTLV8, "application/pairing+tlv8");
+
+#undef TryAssignContentType
+
+        while ((i < session->httpHeaderFieldValue.numBytes) &&
+               ((session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_Space) ||
+                (session->httpHeaderFieldValue.bytes[i] == kHAPIPAccessoryServerCharacter_HorizontalTab))) {
+            i++;
+        }
+        HAPAssert(
+                (i == session->httpHeaderFieldValue.numBytes) ||
+                ((i < session->httpHeaderFieldValue.numBytes) &&
+                 (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_Space) &&
+                 (session->httpHeaderFieldValue.bytes[i] != kHAPIPAccessoryServerCharacter_HorizontalTab)));
+        if (i != session->httpHeaderFieldValue.numBytes) {
+            HAPLogBuffer(
+                    &logObject,
+                    session->httpHeaderFieldValue.bytes,
+                    session->httpHeaderFieldValue.numBytes,
+                    "Unknown Content-Type.");
+            session->httpContentType = kHAPIPAccessoryServerContentType_Unknown;
+        }
+    } else {
+        session->httpParserError = true;
+    }
 }
 
 
@@ -232,6 +294,32 @@ static void read_http(COAPUnixDomainSessionDescriptor* session) {
 }
 
 
+
+static void handle_http(COAPUnixDomainSessionDescriptor* session) {
+    HAPPrecondition(session);
+
+    size_t content_length;
+    HAPAssert(session->inboundBuffer.data);
+    HAPAssert(session->inboundBuffer.position <= session->inboundBuffer.limit);
+    HAPAssert(session->inboundBuffer.limit <= session->inboundBuffer.capacity);
+    HAPAssert(session->httpReaderPosition <= session->inboundBuffer.position);
+    HAPAssert(session->httpReader.state == util_HTTP_READER_STATE_DONE);
+    HAPAssert(!session->httpParserError);
+    if (session->httpContentLength.isDefined) {
+        content_length = session->httpContentLength.value;
+    } else {
+        content_length = 0;
+    }
+    if ((content_length <= session->inboundBuffer.position) &&
+        (session->httpReaderPosition <= session->inboundBuffer.position - content_length)) {
+        HAPLogBufferDebug(
+                &logObject,
+                session->inboundBuffer.data,
+                session->httpReaderPosition + content_length,
+                "session:%p:>",
+                (const void*) session);
+    }
+}
 
 
 
@@ -416,6 +504,14 @@ uint32_t CoapAgentRecv(COAP_Session* coap_session )
 
 	read_http(&coap_session->session);
 
+    if ((coap_session->session.httpReader.state == util_HTTP_READER_STATE_ERROR) 
+			|| coap_session->session.httpParserError) {
+		HAPLogError(&logObject,"Unexpected request.");
+    } else {
+        if (coap_session->session.httpReader.state == util_HTTP_READER_STATE_DONE) {
+            handle_http(&coap_session->session);
+        }
+	}
 	if(coap_session->session.semResponse  != NULL){
 		sal_sem_give(coap_session->session.semResponse);
 	}
