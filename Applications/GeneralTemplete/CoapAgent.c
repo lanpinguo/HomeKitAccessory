@@ -499,11 +499,6 @@ uint32_t CoapAgentRecv(COAP_Session* coap_session )
 
 	read_http(&coap_session->session);
 
-    HAPLogBufferDebug(
-            &logObject,
-            coap_session->session.inboundBuffer.data + coap_session->session.httpReaderPosition ,
-            coap_session->session.httpContentLength.value,"%s",__func__);
-
     if ((coap_session->session.httpReader.state == util_HTTP_READER_STATE_ERROR) 
 			|| coap_session->session.httpParserError) {
 		HAPLogError(&logObject,"Unexpected request.");

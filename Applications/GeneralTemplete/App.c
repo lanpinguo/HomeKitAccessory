@@ -356,7 +356,7 @@ static size_t try_read_float(
 {
 
     size_t i, k;
-	char * buffer;
+	char * buffer = NULL;
 
     HAPAssert(json_reader != NULL);
     HAPAssert(bytes != NULL);
@@ -377,15 +377,22 @@ static size_t try_read_float(
         HAPAssert(i <= k);
         HAPAssert(k <= numBytes);
 		buffer = calloc(1, k - i + 1);
-        HAPRawBufferCopyBytes(buffer, &bytes[i + 1], k - i);
+		HAPAssert(buffer);
+        HAPRawBufferCopyBytes(buffer, &bytes[i], k - i);
+		
+	    HAPLogBufferDebug(&kHAPLog_Default, buffer, k - i,"%s",__func__);
+
 		*err =  HAPFloatFromString(buffer, value);
+		
     } else {
         *err = kHAPError_InvalidData;
 		goto EXIT;
     }
 
 EXIT:
-
+	if(buffer != NULL){
+		free(buffer);
+	}
 	return k;
 
 }
@@ -1536,8 +1543,12 @@ HAPError HandleTemperatureRead(
         void* _Nullable context HAP_UNUSED) {
 	HAPError err;
 	uint64_t xid;
+	int temp ;
 	HAPTime now;
 	static 	HAPTime last_time = 0;
+	static 	float historyValue = 0.1;
+
+
 	/*
 	GET /characteristics HTTP/1.1 
 	Host: lights.local:12345
@@ -1569,10 +1580,15 @@ HAPError HandleTemperatureRead(
 			HAPLogInfo(&kHAPLog_Default, "Wait response timeout");
 		}
 
+	    temp = (int)((*value) * 10 + 0.5);
+	    historyValue = temp / 10.0;	
 
 		last_time = HAPPlatformClockGetCurrent();
 
 	}
+
+	*value = historyValue;
+	
     HAPLogInfo(&kHAPLog_Default, "%g", *value);
 
     return kHAPError_None;
@@ -1587,9 +1603,12 @@ HAPError HandleHumidityRead(
         float* value,
         void* _Nullable context HAP_UNUSED) {
 	HAPError err;
+	int temp ;
 	uint64_t xid;
 	HAPTime now;
 	static 	HAPTime last_time = 0;
+	static 	float historyValue = 0.1;
+	
 	/*
 	GET /characteristics HTTP/1.1 
 	Host: lights.local:12345
@@ -1621,11 +1640,15 @@ HAPError HandleHumidityRead(
 			HAPLogInfo(&kHAPLog_Default, "Wait response timeout");
 		}
 
-
+		//Rounding while rounding
+	    temp = (int)((*value) * 10 + 0.5);
+	    historyValue = temp / 10.0;	
 
 		last_time = HAPPlatformClockGetCurrent();
 
 	}
+
+	*value = historyValue;
     HAPLogInfo(&kHAPLog_Default, "%g", *value);
 
     return kHAPError_None;
