@@ -35,6 +35,22 @@ static const HAPLogObject logObject = { .subsystem = kHAP_LogSubsystem, .categor
 /** US-ASCII space character. */
 #define kHAPIPAccessoryServerCharacter_Space ((char) 32)
 
+
+static void prepare_reading_response(COAPUnixDomainSessionDescriptor* session) {
+    HAPPrecondition(session);
+
+    util_http_reader_init(&session->httpReader, util_HTTP_READER_TYPE_RESPONSE);
+    session->httpReaderPosition = 0;
+    session->httpParserError = false;
+    session->httpMethod.bytes = NULL;
+    session->httpURI.bytes = NULL;
+    session->httpHeaderFieldName.bytes = NULL;
+    session->httpHeaderFieldValue.bytes = NULL;
+    session->httpContentLength.isDefined = false;
+    session->httpContentType = kHAPIPAccessoryServerContentType_Unknown;
+}
+
+
 static void update_token(struct util_http_reader* r, char** token, size_t* length) {
     HAPAssert(r);
     HAPAssert(token);
@@ -203,6 +219,7 @@ static void read_http(COAPUnixDomainSessionDescriptor* session) {
                 r,
                 &session->inboundBuffer.data[session->httpReaderPosition],
                 session->inboundBuffer.position - session->httpReaderPosition);
+
         switch (r->state) {
             case util_HTTP_READER_STATE_READING_METHOD:
             case util_HTTP_READER_STATE_COMPLETED_METHOD: {
@@ -295,31 +312,6 @@ static void read_http(COAPUnixDomainSessionDescriptor* session) {
 
 
 
-static void handle_http(COAPUnixDomainSessionDescriptor* session) {
-    HAPPrecondition(session);
-
-    size_t content_length;
-    HAPAssert(session->inboundBuffer.data);
-    HAPAssert(session->inboundBuffer.position <= session->inboundBuffer.limit);
-    HAPAssert(session->inboundBuffer.limit <= session->inboundBuffer.capacity);
-    HAPAssert(session->httpReaderPosition <= session->inboundBuffer.position);
-    HAPAssert(session->httpReader.state == util_HTTP_READER_STATE_DONE);
-    HAPAssert(!session->httpParserError);
-    if (session->httpContentLength.isDefined) {
-        content_length = session->httpContentLength.value;
-    } else {
-        content_length = 0;
-    }
-    if ((content_length <= session->inboundBuffer.position) &&
-        (session->httpReaderPosition <= session->inboundBuffer.position - content_length)) {
-        HAPLogBufferDebug(
-                &logObject,
-                session->inboundBuffer.data,
-                session->httpReaderPosition + content_length,
-                "session:%p:>",
-                (const void*) session);
-    }
-}
 
 
 
@@ -497,26 +489,32 @@ uint32_t CoapAgentRecv(COAP_Session* coap_session )
 
 
 	coap_session->session.inboundBuffer.limit = recvBytes;
+	coap_session->session.inboundBuffer.position = recvBytes;
 	
 	HAPLogBufferDebug(&logObject,
 		coap_session->session.inboundBuffer.data,
 		coap_session->session.inboundBuffer.limit,"%s",__func__);
 
+    prepare_reading_response(&coap_session->session);
+
 	read_http(&coap_session->session);
+
+    HAPLogBufferDebug(
+            &logObject,
+            coap_session->session.inboundBuffer.data + coap_session->session.httpReaderPosition ,
+            coap_session->session.httpContentLength.value,"%s",__func__);
 
     if ((coap_session->session.httpReader.state == util_HTTP_READER_STATE_ERROR) 
 			|| coap_session->session.httpParserError) {
 		HAPLogError(&logObject,"Unexpected request.");
-    } else {
-        if (coap_session->session.httpReader.state == util_HTTP_READER_STATE_DONE) {
-            handle_http(&coap_session->session);
-        }
-	}
+		goto EXIT;
+    } 
+			
 	if(coap_session->session.semResponse  != NULL){
 		sal_sem_give(coap_session->session.semResponse);
 	}
 	
-
+EXIT:
 	return recvBytes;
 }
 

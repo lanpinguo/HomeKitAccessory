@@ -41,6 +41,7 @@
 #include "HAPPlatformThread.h"
 #include "HAPPlatformSync.h"
 
+#include "HAPBase.h"
 #include "HAP+Internal.h"
 #include "HAPPlatformRunSecondLoop.h"
 #include "CoapAgent.h"
@@ -344,6 +345,50 @@ EXIT:
 
 }
 
+
+HAP_RESULT_USE_CHECK
+static size_t try_read_float(
+        struct util_json_reader* json_reader,
+        char* bytes,
+        size_t numBytes,
+        float* value,
+        HAPError* err) 
+{
+
+    size_t i, k;
+	char * buffer;
+
+    HAPAssert(json_reader != NULL);
+    HAPAssert(bytes != NULL);
+    HAPAssert(value != NULL);
+    HAPAssert(err != NULL);
+
+	k = 0;
+	*err = kHAPError_None;
+    k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+    if (json_reader->state == util_JSON_READER_STATE_BEGINNING_NUMBER) {
+        HAPAssert(k <= numBytes);
+        i = k;
+        k += util_json_reader_read(json_reader, &bytes[k], numBytes - k);
+        if (json_reader->state != util_JSON_READER_STATE_COMPLETED_NUMBER) {
+            *err = kHAPError_InvalidData;
+			goto EXIT;
+        }
+        HAPAssert(i <= k);
+        HAPAssert(k <= numBytes);
+		buffer = calloc(1, k - i + 1);
+        HAPRawBufferCopyBytes(buffer, &bytes[i + 1], k - i);
+		*err =  HAPFloatFromString(buffer, value);
+    } else {
+        *err = kHAPError_InvalidData;
+		goto EXIT;
+    }
+
+EXIT:
+
+	return k;
+
+}
 
 HAP_RESULT_USE_CHECK
 static size_t read_service(
@@ -657,6 +702,133 @@ HAPError ParseBaseInfoFromJsonFormat(
 
 
 	return kHAPError_None;
+}
+
+
+
+
+HAPError GetVariableFromHttpResponse(
+		char* bytes,
+        size_t numBytes,
+        char* name,
+        size_t nameLen,
+        float* value)
+{
+    size_t i, j, k;
+    struct util_json_reader json_reader;
+
+	uint32_t hasVariable = 0;
+
+    HAPError err;
+
+
+    util_json_reader_init(&json_reader);
+    k = util_json_reader_read(&json_reader, bytes, numBytes);
+    if (json_reader.state != util_JSON_READER_STATE_BEGINNING_OBJECT) {
+        return kHAPError_InvalidData;
+    }
+
+    HAPAssert(k <= numBytes);
+	
+    do {
+        k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+        if (json_reader.state != util_JSON_READER_STATE_BEGINNING_STRING) {
+            return kHAPError_InvalidData;
+        }
+        HAPAssert(k <= numBytes);
+        i = k;
+        k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+        if (json_reader.state != util_JSON_READER_STATE_COMPLETED_STRING) {
+            return kHAPError_InvalidData;
+        }
+        HAPAssert(k <= numBytes);
+        j = k;
+        k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+        if (json_reader.state != util_JSON_READER_STATE_AFTER_NAME_SEPARATOR) {
+            return kHAPError_InvalidData;
+        }
+        HAPAssert(i <= j);
+        HAPAssert(j <= k);
+        HAPAssert(k <= numBytes);
+		
+		
+		if ((j - i == nameLen) && HAPRawBufferAreEqual(&bytes[i], name, nameLen)) {
+            if (hasVariable) {
+                HAPLog(&kHAPLog_Default, "Multiple %s entries detected.",name);
+                return kHAPError_InvalidData;
+            }
+			k += try_read_float(&json_reader, &bytes[k], numBytes - k, value, &err);
+			if(err != kHAPError_None){
+                HAPLogError(&kHAPLog_Default, "get item err @ %s:%d.",__FILE__,__LINE__);
+				return err;
+			}
+			hasVariable = true;
+        } 		
+		else {
+            size_t skippedBytes;
+            err = HAPJSONUtilsSkipValue(&json_reader, &bytes[k], numBytes - k, &skippedBytes);
+            if (err) {
+                HAPAssert((err == kHAPError_InvalidData) || (err == kHAPError_OutOfResources));
+                return kHAPError_InvalidData;
+            }
+            k += skippedBytes;
+        }
+        HAPAssert(k <= numBytes);
+        k += util_json_reader_read(&json_reader, &bytes[k], numBytes - k);
+    } while ((k < numBytes) && (json_reader.state == util_JSON_READER_STATE_AFTER_VALUE_SEPARATOR));
+    HAPAssert(
+            (k == numBytes) || ((k < numBytes) && (json_reader.state != util_JSON_READER_STATE_AFTER_VALUE_SEPARATOR)));
+
+
+	return kHAPError_None;
+}
+
+
+
+
+HAPError handle_http_response(COAPUnixDomainSessionDescriptor* session,
+		        char* name,
+		        size_t nameLen,
+		        float* value)
+{
+	HAPError err = kHAPError_Unknown;
+
+
+	HAPPrecondition(session);
+
+    size_t content_length;
+    HAPAssert(session->inboundBuffer.data);
+    HAPAssert(session->inboundBuffer.position <= session->inboundBuffer.limit);
+    HAPAssert(session->inboundBuffer.limit <= session->inboundBuffer.capacity);
+    HAPAssert(session->httpReaderPosition <= session->inboundBuffer.position);
+    HAPAssert(session->httpReader.state == util_HTTP_READER_STATE_DONE);
+    HAPAssert(!session->httpParserError);
+
+
+    if (session->httpContentLength.isDefined) {
+        content_length = session->httpContentLength.value;
+    } else {
+        content_length = 0;
+    }
+    if ((content_length <= session->inboundBuffer.position) &&
+        (session->httpReaderPosition <= session->inboundBuffer.position - content_length)) {
+        HAPLogBufferDebug(
+                &kHAPLog_Default,
+                session->inboundBuffer.data + session->httpReaderPosition ,
+                content_length,
+                "session:%p:>",
+                (const void*) session);
+
+		err = GetVariableFromHttpResponse(
+				session->inboundBuffer.data + session->httpReaderPosition,
+		        content_length,
+		        name,
+		        nameLen,
+		        value);
+				
+    }
+
+	return err;
 }
 
 
@@ -1364,10 +1536,8 @@ HAPError HandleTemperatureRead(
         void* _Nullable context HAP_UNUSED) {
 	HAPError err;
 	uint64_t xid;
-	uint32_t a;
 	HAPTime now;
 	static 	HAPTime last_time = 0;
-	float temp;
 	/*
 	GET /characteristics HTTP/1.1 
 	Host: lights.local:12345
@@ -1389,6 +1559,10 @@ HAPError HandleTemperatureRead(
 
 		if(err == kHAPError_None){
 			HAPLogInfo(&kHAPLog_Default, "Get response from coap-agent");
+			err = handle_http_response(&coap_session.session,
+			        "\"temperature\"",
+			        13,
+			        value);
 			HAPIPByteBufferClear(&coap_session.session.inboundBuffer);
 		}
 		else{
@@ -1399,9 +1573,6 @@ HAPError HandleTemperatureRead(
 		last_time = HAPPlatformClockGetCurrent();
 
 	}
-	HAPPlatformRandomNumberFill(&a,sizeof(a));	
-	temp = (a % 100) / 10.0;
-    *value = 25 + temp;
     HAPLogInfo(&kHAPLog_Default, "%g", *value);
 
     return kHAPError_None;
@@ -1417,10 +1588,8 @@ HAPError HandleHumidityRead(
         void* _Nullable context HAP_UNUSED) {
 	HAPError err;
 	uint64_t xid;
-	uint32_t a;
 	HAPTime now;
 	static 	HAPTime last_time = 0;
-	float temp;
 	/*
 	GET /characteristics HTTP/1.1 
 	Host: lights.local:12345
@@ -1442,6 +1611,10 @@ HAPError HandleHumidityRead(
 
 		if(err == kHAPError_None){
 			HAPLogInfo(&kHAPLog_Default, "Get response from coap-agent");
+			err = handle_http_response(&coap_session.session,
+			        "\"humidity\"",
+			        10,
+			        value);
 			HAPIPByteBufferClear(&coap_session.session.inboundBuffer);
 		}
 		else{
@@ -1453,9 +1626,6 @@ HAPError HandleHumidityRead(
 		last_time = HAPPlatformClockGetCurrent();
 
 	}
-	HAPPlatformRandomNumberFill(&a,sizeof(a));	
-	temp = (a % 100) / 10.0;
-    *value = 25 + temp;
     HAPLogInfo(&kHAPLog_Default, "%g", *value);
 
     return kHAPError_None;
