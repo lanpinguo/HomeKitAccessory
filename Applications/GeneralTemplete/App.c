@@ -1,6 +1,6 @@
 // Copyright (c) 2015-2019 The HomeKit ADK Contributors
 //
-// Licensed under the Apache License, Version 2.0 (the “License�?;
+// Licensed under the Apache License, Version 2.0 (the “License�?;
 // you may not use this file except in compliance with the License.
 // See [CONTRIBUTORS.md] for the list of HomeKit ADK project authors.
 
@@ -670,7 +670,7 @@ HAPError ParseBaseInfoFromJsonFormat(
 			*numServices = 0;
             do {
 				if(*numServices >= maxServices){
-	                HAPLogError(&kHAPLog_Default, " Service number %ld is out of range %ld.",
+	                HAPLogError(&kHAPLog_Default, " Service number %d is out of range %d.",
 								*numServices, maxServices);
 	                return kHAPError_InvalidData;
 				}
@@ -937,7 +937,7 @@ HAPError SwitchServiceAdd(uint64_t *iid, uint64_t localId, AccessorySerivce* inp
     characteristics[3] = NULL;
 
 	char *service_name = calloc(1, 32);
-	snprintf(service_name,32,"switch-%ld",localId);
+	snprintf(service_name,32,"switch-%llu",localId);
 	service->iid = *iid ;
 	service->serviceType = &kHAPServiceType_Switch;
 	service->debugDescription = kHAPServiceDebugDescription_Switch;
@@ -1060,7 +1060,7 @@ HAPError TemperatureSensorServiceAdd(uint64_t *iid, uint64_t localId, AccessoryS
     characteristics[3] = NULL;
 
 	char *service_name = calloc(1, 32);
-	snprintf(service_name,32,"temperature-%ld",localId);
+	snprintf(service_name,32,"temperature-%llu",localId);
 	service->iid = *iid ;
 	service->serviceType = &kHAPServiceType_TemperatureSensor;
 	service->debugDescription = kHAPServiceDebugDescription_TemperatureSensor;
@@ -1185,7 +1185,7 @@ HAPError HumiditySensorServiceAdd(uint64_t *iid, uint64_t localId, AccessorySeri
     characteristics[3] = NULL;
 
 	char *service_name = calloc(1, 32);
-	snprintf(service_name,32,"humidity-%ld",localId);
+	snprintf(service_name,32,"humidity-%llu",localId);
 	service->iid = *iid ;
 	service->serviceType = &kHAPServiceType_HumiditySensor;
 	service->debugDescription = kHAPServiceDebugDescription_HumiditySensor;
@@ -1256,7 +1256,7 @@ static void LoadAccessoryBaseInfo(void) {
 		MAX_SERVICES,
 		&numServiceType);
 	
-    HAPLogInfo(&kHAPLog_Default, "baseInfo.aid: %ld", accessoryConfiguration.baseInfo.aid);
+    HAPLogInfo(&kHAPLog_Default, "baseInfo.aid: %llu", accessoryConfiguration.baseInfo.aid);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.category: %d", accessoryConfiguration.baseInfo.category);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.name: %s", accessoryConfiguration.baseInfo.name);
     HAPLogInfo(&kHAPLog_Default, "baseInfo.manufacturer: %s", accessoryConfiguration.baseInfo.manufacturer);
@@ -1322,7 +1322,7 @@ static void LoadAccessoryBaseInfo(void) {
 			        HAPFatalError();
 					goto DONE;
 			    }
-			    HAPLogDebug(&kHAPLog_Default, "add new switch service: %lu", iid);
+			    HAPLogDebug(&kHAPLog_Default, "add new switch service: %llu", iid);
 			}
 		}
 		else if(HAPRawBufferAreEqual(service->type, "humidity", 8)){
@@ -1336,7 +1336,7 @@ static void LoadAccessoryBaseInfo(void) {
 			        HAPFatalError();
 					goto DONE;
 			    }
-			    HAPLogDebug(&kHAPLog_Default, "add new humidity service: %lu", iid);
+			    HAPLogDebug(&kHAPLog_Default, "add new humidity service: %llu", iid);
 			}
 		}
 		else if(HAPRawBufferAreEqual(service->type, "temperature", 11)){
@@ -1350,7 +1350,7 @@ static void LoadAccessoryBaseInfo(void) {
 			        HAPFatalError();
 					goto DONE;
 			    }
-			    HAPLogDebug(&kHAPLog_Default, "add new temperature service: %lu", iid);
+			    HAPLogDebug(&kHAPLog_Default, "add new temperature service: %llu", iid);
 			}
 		}
 
@@ -1358,7 +1358,7 @@ static void LoadAccessoryBaseInfo(void) {
 	
 	accessory.services = (const HAPService* const* )services;
 	
-    HAPLog(&kHAPLog_Default, "new iid: %ld",iid);
+    HAPLog(&kHAPLog_Default, "new iid: %llu",iid);
 
 DONE:
 	if(baseInfo != NULL){
@@ -1491,7 +1491,7 @@ HAPError HandleLightBulbOnWrite(
 	
 	HAPAssert(localId < 8);
 
-    HAPLogInfo(&kHAPLog_Default, "%s,request iid: %ld, local id:%ld",
+    HAPLogInfo(&kHAPLog_Default, "%s,request iid: %llu, local id:%llu",
 				__func__,
 				request->characteristic->iid,
 				localId);
@@ -1506,7 +1506,7 @@ HAPError HandleLightBulbOnWrite(
 
 		content_length = snprintf(json_body,256,
 							"{\"characteristics\" : "
-							"[{\"aid\" : 2,\"iid\" : %ld, \"localId\" : %ld,\"value\" : %s}]}",
+							"[{\"aid\" : 2,\"iid\" : %llu, \"localId\" : %llu,\"value\" : %s}]}",
 							request->characteristic->iid,
 							localId,
 							value ? "true" : "false");	

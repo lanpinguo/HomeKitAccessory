@@ -482,7 +482,7 @@ uint32_t CoapAgentRecv(COAP_Session* coap_session )
 			return 0;
 		}
 		HAPLogError(&logObject,
-					"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+					"Failed to receive packet. recvfrom() returned %d. errno %s.\r\n",
 					recvBytes, strerror(errno));
 		return 0;
 	}
@@ -607,7 +607,7 @@ int CoapMsgRecvWithTimeout(int fd, uint8_t *buf,
 			/* Normal if no packets waiting to be received and caller didn't block. */
 			return RC_E_TIMEOUT;
 		}
-		HAPLogError(&logObject,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+		HAPLogError(&logObject,"Failed to receive packet. recvfrom() returned %d. errno %s.\r\n",
 		  recvBytes, strerror(errno));
 		return RC_E_FAIL;
 	}
@@ -678,7 +678,7 @@ void test_coap(int srcSockFd)
 
 
 	
-	msgLen = snprintf(msg,200,"post://[%ld]/[%s]/%s%s",strlen(res),ip,res,payload);
+	msgLen = snprintf(msg,200,"post://[%u]/[%s]/%s%s",strlen(res),ip,res,payload);
 
 	debug_log(DBG_LOG_INFO,"send(%d): %s",msgLen,msg);
 	addrlen = udsAddrGenerate(&server,"/tmp/borderAgent");

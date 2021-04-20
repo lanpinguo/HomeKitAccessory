@@ -147,12 +147,12 @@ uint32_t CoapAgentRecv(int fd)
 			/* Normal if no packets waiting to be received and caller didn't block. */
 			return 0;
 		}
-		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %d. errno %s.\r\n",
 		      recvBytes, strerror(errno));
 		return 0;
 	}
 
-	debug_log(DBG_LOG_INFO,"callback recv(%ld): %s",recvBytes,buf);
+	debug_log(DBG_LOG_INFO,"callback recv(%zd): %s",recvBytes,buf);
 
 	free(buf);
 	return recvBytes;
@@ -211,7 +211,7 @@ int CoapMsgRecvWithTimeout(int fd, uint8_t *buf,
 			/* Normal if no packets waiting to be received and caller didn't block. */
 			return RC_E_TIMEOUT;
 		}
-		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %ld. errno %s.\r\n",
+		debug_log(DBG_LOG_ERR,"Failed to receive packet. recvfrom() returned %d. errno %s.\r\n",
 		  recvBytes, strerror(errno));
 		return RC_E_FAIL;
 	}
@@ -271,7 +271,7 @@ void test_coap(int srcSockFd)
 
 
 	
-	msgLen = snprintf(msg,200,"post://[%ld]/[%s]/%s%s",strlen(res),ip,res,payload);
+	msgLen = snprintf(msg,200,"post://[%d]/[%s]/%s%s",strlen(res),ip,res,payload);
 
 	debug_log(DBG_LOG_INFO,"send(%d): %s",msgLen,msg);
 	addrlen = udsAddrGenerate(&server,"/tmp/borderAgent");
